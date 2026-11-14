@@ -42,7 +42,7 @@ body {
   background-color: #f8fafc;
 }
 
-/* Custom scrollbars */
+/* Кастомные полосы прокрутки */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

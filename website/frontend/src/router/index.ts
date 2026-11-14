@@ -107,22 +107,22 @@ export const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
 
-  // Check initial setup status if not yet checked
+  // Проверка статуса первоначальной настройки системы
   if (authStore.isInitialized === null) {
     await authStore.checkSetup();
   }
 
-  // If service is not initialized, force redirect to /setup
+  // Если сервис не инициализирован, принудительно направляем на экран создания админа /setup
   if (!authStore.isInitialized && to.path !== '/setup') {
     return next('/setup');
   }
 
-  // If service is initialized and user is going to /setup, redirect to /login or /dashboard
+  // Если сервис уже инициализирован, закрываем доступ к /setup
   if (authStore.isInitialized && to.path === '/setup') {
     return next('/login');
   }
 
-  // Public routes (login)
+  // Публичные маршруты (экран входа)
   if (to.meta.public) {
     if (authStore.isAuthenticated && to.path === '/login') {
       return next('/dashboard');
@@ -130,7 +130,7 @@ router.beforeEach(async (to, from, next) => {
     return next();
   }
 
-  // Protected routes: check if authenticated
+  // Защищенные маршруты: проверка наличия авторизации
   if (!authStore.isAuthenticated) {
     return next('/login');
   }

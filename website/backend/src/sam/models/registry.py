@@ -18,7 +18,7 @@ class RuSoftwareRegistry(Base):
     documentation_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_ai: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     excluded_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(384), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

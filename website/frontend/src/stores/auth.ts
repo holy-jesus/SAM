@@ -58,7 +58,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       user.value = await api.getMe();
     } catch {
-      // Fallback user
+      // Резервный профиль администратора при недоступности API
       user.value = {
         id: 'u1',
         username: 'admin',

@@ -8,21 +8,21 @@ import AIChatWidget from '@/components/ai/AIChatWidget.vue';
 
 <template>
   <div class="min-h-screen bg-slate-50 flex flex-col font-sans">
-    <!-- Navbar -->
+    <!-- Верхняя панель навигации (Navbar) -->
     <Navbar />
 
-    <!-- Main Container -->
+    <!-- Основной контейнер рабочей области -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- Sidebar -->
+      <!-- Боковое меню (Sidebar) -->
       <Sidebar />
 
-      <!-- Page Content -->
+      <!-- Область отображения текущей страницы -->
       <main class="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
         <slot />
       </main>
     </div>
 
-    <!-- Global AI Modals & Floating Chat Widget -->
+    <!-- Глобальные модальные окна ИИ и плавающий чат-виджет -->
     <SmartMatchModal />
     <EulaAnalyzerModal />
     <AIChatWidget />

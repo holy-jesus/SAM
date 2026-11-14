@@ -13,9 +13,10 @@ from sam.models.employee import Employee
 from sam.models.computer import Computer
 from sam.models.installed_software import InstalledSoftware
 from sam.models.import_history import ImportHistory
+from sam.models.process_signature import ProcessSignature
 from sam.services.registry_sync import sync_software_classifiers, sync_russian_registry
 from sam.services.compliance_engine import recalculate_compliance_alerts
-from sam.services.ai_matcher import match_raw_process_to_catalog
+from sam.services.matcher import match_raw_process_to_catalog
 from sam.services.dump_parser import parse_dump_file
 
 
@@ -209,6 +210,87 @@ async def seed_database_if_empty(db: AsyncSession):
         ]
         for lic in default_licenses:
             db.add(lic)
+        await db.commit()
+
+        # 5.1 Process Signatures (Самообучающаяся база сигнатур в БД, без хардкода)
+        default_signatures = [
+            ProcessSignature(
+                process_name="studio_visual_2022.exe",
+                normalized_name="Microsoft Visual Studio 2022 Professional",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000004"),
+                vendor="Microsoft Corporation",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="devenv.exe",
+                normalized_name="Microsoft Visual Studio 2022 Professional",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000004"),
+                vendor="Microsoft Corporation",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="chrome.exe",
+                normalized_name="Google Chrome",
+                binary_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
+                vendor="Google LLC",
+                confidence=1.0,
+                match_source="hash",
+            ),
+            ProcessSignature(
+                process_name="7zFM.exe",
+                normalized_name="7-Zip",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000003"),
+                vendor="Igor Pavlov",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="utorrent.exe",
+                normalized_name="BitTorrent / uTorrent Client",
+                binary_hash="9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000007"),
+                vendor="BitTorrent Inc.",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="winword.exe",
+                normalized_name="Microsoft Office 2021 Professional Plus",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                vendor="Microsoft Corporation",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="excel.exe",
+                normalized_name="Microsoft Office 2021 Professional Plus",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                vendor="Microsoft Corporation",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="1cv8.exe",
+                normalized_name="1С:Предприятие 8",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000006"),
+                vendor="Фирма 1С",
+                confidence=0.98,
+                match_source="admin",
+            ),
+            ProcessSignature(
+                process_name="telegram.exe",
+                normalized_name="Telegram Desktop",
+                catalog_software_id=uuid.UUID("00000000-0000-0000-0000-000000000005"),
+                vendor="Telegram FZ-LLC",
+                confidence=0.98,
+                match_source="admin",
+            ),
+        ]
+        for s in default_signatures:
+            db.add(s)
         await db.commit()
 
     # 6. Employees
@@ -430,8 +512,15 @@ async def seed_database_if_empty(db: AsyncSession):
                         display_name = row.get("display_name", "")
                         publisher = row.get("publisher", "")
                         version = row.get("version", "")
+                        install_path = row.get("install_path")
 
-                        match_res = await match_raw_process_to_catalog(db, display_name, publisher)
+                        match_res = await match_raw_process_to_catalog(
+                            db=db,
+                            raw_process_name=display_name,
+                            publisher=publisher,
+                            install_path=install_path,
+                            reported_version=version,
+                        )
                         cat_id = match_res.get("matched_catalog_software_id")
                         category_id = match_res.get("category_id") or 1
 
@@ -440,6 +529,7 @@ async def seed_database_if_empty(db: AsyncSession):
                             raw_display_name=display_name,
                             raw_publisher=publisher,
                             raw_version=version,
+                            install_path=install_path,
                             catalog_software_id=uuid.UUID(cat_id) if cat_id else None,
                             category_id=category_id,
                             match_confidence=match_res.get("confidence", 0.0),

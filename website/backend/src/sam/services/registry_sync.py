@@ -200,3 +200,43 @@ async def sync_russian_registry(db: AsyncSession, limit_rows: int = 5000) -> int
         await db.commit()
 
     return records_added
+
+
+async def generate_registry_embeddings_batch(db: AsyncSession, limit: int = 200) -> int:
+    """
+    Генерирует и сохраняет векторные эмбеддинги для записей ru_software_registry через OpenAI API.
+    """
+    stmt = (
+        select(RuSoftwareRegistry)
+        .where(RuSoftwareRegistry.embedding.is_null())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    records = list(result.scalars().all())
+    if not records or not settings.OPENAI_API_KEY:
+        return 0
+
+    try:
+        from openai import AsyncOpenAI
+        client_kwargs = {"api_key": settings.OPENAI_API_KEY}
+        if settings.OPENAI_BASE_URL:
+            client_kwargs["base_url"] = settings.OPENAI_BASE_URL
+        client = AsyncOpenAI(**client_kwargs)
+
+        texts = [f"{r.name} {r.alternative_names or ''} {r.software_class or ''}" for r in records]
+        updated = 0
+        for i in range(0, len(texts), 50):
+            sub_texts = texts[i:i + 50]
+            sub_records = records[i:i + 50]
+            resp = await client.embeddings.create(
+                model=settings.OPENAI_EMBEDDING_MODEL or "text-embedding-3-small",
+                input=sub_texts
+            )
+            for rec, emb_data in zip(sub_records, resp.data):
+                rec.embedding = emb_data.embedding
+                updated += 1
+            await db.commit()
+        return updated
+    except Exception as e:
+        print(f"Notice: generating registry embeddings failed: {e}")
+        return 0

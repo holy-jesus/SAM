@@ -59,7 +59,7 @@ async function uploadFile(file: File) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div>
       <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Импорт дампа с рабочих станций</h1>
       <p class="text-xs text-slate-500 mt-1">
@@ -67,7 +67,7 @@ async function uploadFile(file: File) {
       </p>
     </div>
 
-    <!-- Drag & Drop Upload Zone -->
+    <!-- Область загрузки Drag & Drop -->
     <div
       :class="[
         'border-2 border-dashed rounded-2xl p-8 text-center transition-all bg-white cursor-pointer relative',
@@ -106,7 +106,7 @@ async function uploadFile(file: File) {
       </div>
     </div>
 
-    <!-- Upload Success Banner -->
+    <!-- Баннер успешной загрузки -->
     <div v-if="uploadResult" class="p-5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3">
       <div class="flex items-center gap-2 text-emerald-800 font-bold text-sm">
         <CheckCircle2 class="w-5 h-5 text-emerald-600" />
@@ -133,7 +133,7 @@ async function uploadFile(file: File) {
       </div>
     </div>
 
-    <!-- Format Specification Reference Card -->
+    <!-- Справочная карточка структуры колонок -->
     <Card title="Требования к структуре колонок файла (Пример дампа с компов.xlsx)">
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs font-mono border-collapse">
@@ -169,7 +169,7 @@ async function uploadFile(file: File) {
       </div>
     </Card>
 
-    <!-- Import History Table -->
+    <!-- Таблица истории импорта -->
     <Card title="История предыдущих загрузок дампов" noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">

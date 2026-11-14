@@ -70,17 +70,17 @@ const maxWidthClass = {
       leave-to-class="opacity-0"
     >
       <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-        <!-- Backdrop -->
+        <!-- Затемняющая подложка (Backdrop) -->
         <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity" @click="close" />
 
-        <!-- Dialog Box -->
+        <!-- Окно диалога -->
         <div
           :class="[
             'relative bg-white rounded-xl shadow-2xl border border-slate-200 w-full overflow-hidden transform transition-all z-10 my-8',
             maxWidthClass,
           ]"
         >
-          <!-- Header -->
+          <!-- Шапка модального окна -->
           <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
             <div>
               <h3 class="text-base font-semibold text-slate-900">{{ title }}</h3>
@@ -95,12 +95,12 @@ const maxWidthClass = {
             </button>
           </div>
 
-          <!-- Body -->
+          <!-- Основное тело диалога -->
           <div class="p-6 max-h-[75vh] overflow-y-auto">
             <slot />
           </div>
 
-          <!-- Footer -->
+          <!-- Нижняя панель с действиями -->
           <div v-if="$slots.footer" class="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
             <slot name="footer" />
           </div>

@@ -31,7 +31,7 @@ const filteredClassifiers = computed(() => {
   );
 });
 
-// Group by section
+// Группировка по разделам
 const groupedSections = computed(() => {
   const groups: Record<string, SoftwareClassifier[]> = {};
   for (const item of filteredClassifiers.value) {
@@ -46,7 +46,7 @@ const groupedSections = computed(() => {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <div class="flex items-center gap-2">
@@ -71,7 +71,7 @@ const groupedSections = computed(() => {
       </a>
     </div>
 
-    <!-- Search Input -->
+    <!-- Поле поиска -->
     <div class="bg-white p-3 rounded-xl border border-slate-200 w-full sm:w-96">
       <Input
         v-model="searchQuery"
@@ -79,14 +79,14 @@ const groupedSections = computed(() => {
       />
     </div>
 
-    <!-- Sections & Classes Tree View -->
+    <!-- Дерево разделов и классов -->
     <div class="space-y-4">
       <div
         v-for="(items, sectionTitle) in groupedSections"
         :key="sectionTitle"
         class="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs"
       >
-        <!-- Section Header -->
+        <!-- Заголовок раздела -->
         <div class="px-5 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
           <div class="flex items-center gap-2.5">
             <FolderTree class="w-4 h-4 text-blue-600" />
@@ -97,7 +97,7 @@ const groupedSections = computed(() => {
           </Badge>
         </div>
 
-        <!-- Classes List inside Section -->
+        <!-- Список классов внутри раздела -->
         <div class="divide-y divide-slate-100">
           <div
             v-for="item in items"

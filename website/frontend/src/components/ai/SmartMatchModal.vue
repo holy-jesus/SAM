@@ -27,6 +27,7 @@ watch(
   }
 );
 
+// Запуск семантического сопоставления процесса
 async function runMatch() {
   if (!processInput.value.trim()) return;
   loading.value = true;
@@ -39,6 +40,7 @@ async function runMatch() {
   }
 }
 
+// Запуск фоновой массовой нормализации всех нераспознанных процессов в БД
 async function runBatchNormalize() {
   batchLoading.value = true;
   try {
@@ -49,6 +51,7 @@ async function runBatchNormalize() {
   }
 }
 
+// Подтверждение и связывание процесса с каталогом
 function approveMatch() {
   if (!result.value) return;
   successMessage.value = `Сопоставление для "${result.value.raw_process_name}" сохранено и верифицировано в каталоге!`;
@@ -66,7 +69,7 @@ function approveMatch() {
     maxWidth="2xl"
   >
     <div class="space-y-5">
-      <!-- Input Box -->
+      <!-- Поле ввода имени процесса -->
       <div class="flex gap-2 items-end">
         <div class="flex-1">
           <Input
@@ -82,7 +85,7 @@ function approveMatch() {
         </Button>
       </div>
 
-      <!-- Result Card -->
+      <!-- Карточка результата семантического анализа -->
       <div v-if="result" class="border border-blue-100 bg-blue-50/40 rounded-xl p-4.5 space-y-4">
         <div class="flex items-start justify-between">
           <div class="flex items-center gap-2">
@@ -97,7 +100,7 @@ function approveMatch() {
           </Badge>
         </div>
 
-        <!-- Transformation Banner -->
+        <!-- Визуализация сопоставления процесса и каталога -->
         <div class="flex items-center gap-3 bg-white p-3 rounded-lg border border-slate-200 text-xs font-mono">
           <div class="text-slate-600 truncate flex-1 font-semibold text-red-600">
             {{ result.raw_process_name }}
@@ -122,13 +125,13 @@ function approveMatch() {
         </div>
       </div>
 
-      <!-- Success Notification -->
+      <!-- Уведомление об успешном результате -->
       <div v-if="successMessage" class="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
         <CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0" />
         <span>{{ successMessage }}</span>
       </div>
 
-      <!-- Batch Normalize Section -->
+      <!-- Раздел массовой нормализации процессов -->
       <div class="pt-3 border-t border-slate-200 flex items-center justify-between">
         <div>
           <h5 class="text-xs font-semibold text-slate-800">Массовая обработка нераспознанных процессов</h5>

@@ -10,7 +10,7 @@ from sam.schemas.registry import (
     RegistryStatusResponse,
     RegistrySyncResponse,
 )
-from sam.services.registry_sync import sync_russian_registry
+from sam.services.registry_sync import sync_russian_registry, generate_registry_embeddings_batch
 
 router = APIRouter(prefix="/registry", tags=["Russian Software Registry"])
 
@@ -71,4 +71,17 @@ async def sync_registry(db: AsyncSession = Depends(get_db)):
         "success": True,
         "message": "Единый реестр отечественного ПО успешно синхронизирован с reestr.digital.gov.ru",
         "updated_count": updated_count,
+    }
+
+
+@router.post("/generate-embeddings")
+async def generate_embeddings(
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db)
+):
+    count = await generate_registry_embeddings_batch(db, limit=limit)
+    return {
+        "success": True,
+        "generated_count": count,
+        "message": f"Сгенерировано {count} векторных эмбеддингов для Единого реестра ПО РФ."
     }

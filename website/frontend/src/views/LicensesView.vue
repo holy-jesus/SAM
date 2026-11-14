@@ -28,7 +28,7 @@ const catalog = ref<SoftwareCatalogItem[]>([]);
 const loading = ref(false);
 const searchQuery = ref('');
 
-// Modals
+// Модальные окна
 const isModalOpen = ref(false);
 const editingItem = ref<Partial<License> | null>(null);
 
@@ -37,11 +37,11 @@ const form = ref({
   license_name: '',
   license_type: 'Платный',
   license_model: 'per_device' as LicenseModel,
-  total_purchased: 10,
-  unit_cost: 25000,
+  total_purchased: 1,
+  unit_cost: 0,
   currency: 'RUB',
-  valid_from: '2025-01-01',
-  valid_to: '2027-12-31',
+  valid_from: '',
+  valid_to: '',
   eula_text: '',
 });
 
@@ -81,14 +81,14 @@ function openCreate() {
   editingItem.value = null;
   form.value = {
     software_id: catalog.value[0]?.id || '',
-    license_name: 'Корпоративная подписка Enterprise',
+    license_name: '',
     license_type: 'Платный',
     license_model: 'per_device',
-    total_purchased: 20,
-    unit_cost: 30000,
+    total_purchased: 1,
+    unit_cost: 0,
     currency: 'RUB',
-    valid_from: '2025-01-01',
-    valid_to: '2026-12-31',
+    valid_from: '',
+    valid_to: '',
     eula_text: '',
   };
   isModalOpen.value = true;
@@ -132,7 +132,7 @@ async function deleteLicense(id: string) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Лицензии и соглашения</h1>
@@ -147,7 +147,7 @@ async function deleteLicense(id: string) {
       </Button>
     </div>
 
-    <!-- Filters Bar -->
+    <!-- Панель фильтров -->
     <div class="flex items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
       <div class="w-full sm:w-80">
         <Input
@@ -157,7 +157,7 @@ async function deleteLicense(id: string) {
       </div>
     </div>
 
-    <!-- Licenses Table -->
+    <!-- Таблица лицензий -->
     <Card noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -241,7 +241,7 @@ async function deleteLicense(id: string) {
       </div>
     </Card>
 
-    <!-- Create/Edit Modal -->
+    <!-- Модальное окно создания / редактирования -->
     <Modal
       v-model="isModalOpen"
       :title="editingItem ? 'Редактирование лицензии' : 'Регистрация лицензии'"

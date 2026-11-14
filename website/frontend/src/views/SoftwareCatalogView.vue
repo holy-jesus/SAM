@@ -29,7 +29,7 @@ const loading = ref(false);
 const searchQuery = ref('');
 const licenseTypeFilter = ref('all');
 
-// Modals
+// Модальные окна
 const isModalOpen = ref(false);
 const editingItem = ref<Partial<SoftwareCatalogItem> | null>(null);
 
@@ -40,8 +40,8 @@ const form = ref({
   classifier_id: null as number | null,
   category_id: 1,
   license_type: 'Commercial' as LicenseType,
-  max_installations: 100,
-  responsible_person: 'Сидоров К. (ИТ-отдел)',
+  max_installations: 0,
+  responsible_person: '',
   approval_status: 'approved' as 'approved' | 'review' | 'rejected',
 });
 
@@ -86,13 +86,13 @@ function openCreate() {
   editingItem.value = null;
   form.value = {
     name: '',
-    vendor: 'Microsoft Corporation',
-    description: 'Корпоративное программное обеспечение',
+    vendor: '',
+    description: '',
     classifier_id: classifiers.value[0]?.id || null,
     category_id: 1,
     license_type: 'Commercial',
-    max_installations: 50,
-    responsible_person: 'Сидоров К. (ИТ-отдел)',
+    max_installations: 0,
+    responsible_person: '',
     approval_status: 'approved',
   };
   isModalOpen.value = true;
@@ -135,7 +135,7 @@ async function deleteItem(id: string) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <div class="flex items-center gap-2">
@@ -155,7 +155,7 @@ async function deleteItem(id: string) {
       </Button>
     </div>
 
-    <!-- Filters Bar -->
+    <!-- Панель фильтров -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
       <div class="w-full sm:w-80">
         <Input
@@ -179,7 +179,7 @@ async function deleteItem(id: string) {
       </div>
     </div>
 
-    <!-- Catalog Table -->
+    <!-- Таблица каталога ПО -->
     <Card noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -267,7 +267,7 @@ async function deleteItem(id: string) {
       </div>
     </Card>
 
-    <!-- Create/Edit Modal -->
+    <!-- Модальное окно добавления / редактирования -->
     <Modal
       v-model="isModalOpen"
       :title="editingItem ? 'Редактирование ПО каталога' : 'Добавить ПО в белый список'"

@@ -23,10 +23,10 @@ const route = useRoute();
 const samStore = useSamStore();
 
 const activeAlertsCount = computed(() => {
-  return samStore.alerts.filter((a) => a.status === 'active').length || 5;
+  return samStore.alerts.filter((a) => a.status === 'active').length;
 });
 
-const navigationSections = [
+const navigationSections = computed(() => [
   {
     title: 'МОНИТОРИНГ И КОНТРОЛЬ',
     items: [
@@ -35,7 +35,7 @@ const navigationSections = [
         name: 'Комплаенс-контроль',
         path: '/compliance',
         icon: ShieldAlert,
-        badge: activeAlertsCount,
+        badge: activeAlertsCount.value > 0 ? activeAlertsCount.value : undefined,
         badgeVariant: 'destructive' as const,
       },
     ],
@@ -65,7 +65,7 @@ const navigationSections = [
       { name: 'Чат-ассистент ИТ-директора', path: '/ai-chat', icon: Bot },
     ],
   },
-];
+]);
 </script>
 
 <template>
@@ -113,15 +113,14 @@ const navigationSections = [
       </div>
     </div>
 
-    <!-- Bottom Quick AI Card -->
+    <!-- Карточка ИИ-модуля внизу сайдбара -->
     <div class="mt-auto p-3.5 border-t border-slate-100">
       <div class="p-3 bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl text-white text-xs space-y-2 shadow-xs">
         <div class="flex items-center justify-between">
           <span class="font-semibold text-xs flex items-center gap-1.5">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            SAM AI Engine
+            Сэм ИИ
           </span>
-          <span class="text-[9px] uppercase px-1.5 py-0.5 bg-white/20 rounded-sm font-mono">pgvector</span>
         </div>
         <p class="text-[11px] text-slate-300 leading-snug">
           Анализ EULA и автоматическая нормализация процессов активны.
@@ -131,7 +130,7 @@ const navigationSections = [
           class="w-full text-center py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-medium text-[11px] transition cursor-pointer"
           @click="samStore.toggleAIChat()"
         >
-          Открыть чат с ИИ
+          Открыть чат с Сэмом
         </button>
       </div>
     </div>

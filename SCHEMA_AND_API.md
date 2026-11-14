@@ -411,3 +411,92 @@ CREATE TABLE import_history (
       "data": [ ... ]
     }
     ```
+
+---
+
+## 4. Обновления и расширения архитектуры (Smart Matching Pipeline & Self-Learning DB)
+
+### 4.1. Новая таблица `process_signatures` (Самообучающаяся база знаний сигнатур)
+Исключает использование статических hardcoded словарей в коде. Любой распознанный процесс (по хэшу, Реестру РФ, Wikimedia, векторному сходству или через OpenAI LLM) сохраняется в этой таблице с эмбеддингом, что позволяет системе обучаться и ускоряться со временем.
+
+```sql
+CREATE TABLE process_signatures (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    process_name VARCHAR(500) NOT NULL,            -- Имя процесса / исполняемого файла (например: "studio_visual_2022.exe")
+    normalized_name VARCHAR(500) NOT NULL,         -- Каноническое наименование (например: "Microsoft Visual Studio 2022 Professional")
+    binary_hash VARCHAR(64),                       -- Хэш SHA-256 (если известен)
+    catalog_software_id UUID REFERENCES software_catalog(id) ON DELETE CASCADE,
+    ru_registry_id INTEGER REFERENCES ru_software_registry(id) ON DELETE SET NULL,
+    vendor VARCHAR(500),
+    confidence REAL DEFAULT 1.0,
+    match_source VARCHAR(50) NOT NULL,             -- 'hash', 'ru_registry', 'embedding', 'wikimedia', 'openai', 'admin', 'fuzzy_catalog'
+    embedding vector(1536),                        -- Вектор OpenAI text-embedding-3-small (1536 измерений)
+    times_matched INTEGER DEFAULT 1,               -- Счётчик популярности / частоты обращения
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_proc_sig_name ON process_signatures(process_name);
+CREATE INDEX idx_proc_sig_norm ON process_signatures(normalized_name);
+CREATE INDEX idx_proc_sig_hash ON process_signatures(binary_hash);
+CREATE INDEX idx_proc_sig_embedding ON process_signatures USING ivfflat (embedding vector_cosine_ops);
+```
+
+### 4.2. Обновление векторных представлений под OpenAI (`vector(1536)`)
+Размерность векторных колонок `embedding` в таблицах `ru_software_registry`, `software_catalog` и `process_signatures` стандартизирована до **1536 измерений** (модель `text-embedding-3-small`).
+
+### 4.3. Архитектура конвейера Smart Matching
+Поиск и нормализация "грязных" процессов выполняются по строгому 8-ступенчатому конвейеру:
+1. **Хэш файла в БД**: мгновенная сверка SHA-256 контрольной суммы с таблицами `process_signatures` и проверенными записями `installed_software` (`confidence: 1.0`, источник: `hash`).
+2. **Эвристический поиск по БД (Путь установки + Имя .exe + Издатель)**: мгновенная локальная сверка структуры пути и имени файла с ранее верифицированными записями в `installed_software` и `software_catalog`. Решает проблему устаревания хэшей при минорных обновлениях билдов (например, `chrome.exe` или `1cv8.exe` обновились, но путь и исполняемый файл прежние). Сохраняет точную привязку к каталогу, **фиксирует новую реальную версию** (`matched_version = reported_version`), а новый хэш бинарника автоматически записывает в `process_signatures` для самообучения (`confidence: 0.90-0.96`, источник: `path_heuristic`).
+3. **База обученных сигнатур в БД**: проверка наличия ранее распознанного процесса в таблице `process_signatures` (`match_source: process_signatures`).
+4. **Единый реестр отечественного ПО**: поиск в таблице `ru_software_registry` (более 22 000 записей). При совпадении запись связывается с каталогом и сохраняется в базу знаний (`match_source: ru_registry`).
+5. **Векторный семантический поиск по БД (OpenAI Embeddings)**: расчёт эмбеддинга запроса через `text-embedding-3-small` и косинусный поиск в базе по векторам `process_signatures` и `ru_software_registry` (`confidence: >= 0.82`, источник: `embedding`).
+6. **Wikimedia Semantic Search API**: вызов Wikipedia API, извлечение статьи/аннотации, расчёт эмбеддинга и сохранение в БД (`confidence: 0.85-0.90`, источник: `wikimedia`).
+7. **Нейросеть (OpenAI LLM)**: генерация канонического имени через `chat.completions` (JSON mode), автоматический расчёт эмбеддинга и сохранение в `process_signatures` (`confidence: 0.90-0.98`, источник: `openai`).
+8. **Локальный фолбэк по каталогу**: нечёткое сопоставление по токенам с сохранением найденного совпадения в базу данных.
+
+### 4.4. Дополнительные API эндпоинты
+
+#### `POST /api/v1/matcher/match-software` (и `POST /api/v1/ai/match-software`)
+* Расширенное тело запроса (включает путь установки и версию для эвристического сопоставления):
+  ```json
+  {
+    "raw_process_name": "chrome.exe",
+    "install_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "version": "125.0.6422.60",
+    "publisher": "Google LLC",
+    "binary_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+  ```
+* Расширенный ответ с фиксацией актуальной версии и источника сопоставления:
+  ```json
+  {
+    "raw_process_name": "chrome.exe",
+    "matched_catalog_software_id": "00000000-0000-0000-0000-000000000002",
+    "matched_name": "Google Chrome",
+    "vendor": "Google LLC",
+    "matched_version": "125.0.6422.60",
+    "confidence": 0.96,
+    "reasoning": "Эвристическое соответствие по пути установки ('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe') и исполняемому файлу 'chrome.exe' с эталонным ПО 'Google Chrome' (оценка сходства: 110%, актуальная версия: '125.0.6422.60').",
+    "match_source": "path_heuristic" // 'hash', 'path_heuristic', 'ru_registry', 'embedding', 'wikimedia', 'openai', 'fuzzy_catalog'
+  }
+  ```
+
+#### `POST /api/v1/registry/generate-embeddings`
+* Запускает батч-генерацию векторных эмбеддингов для записей `ru_software_registry`, у которых поле `embedding` ещё не заполнено, через OpenAI Embeddings API (`text-embedding-3-small`).
+* Query параметры: `limit` (по умолчанию 200).
+* Ответ:
+  ```json
+  {
+    "success": true,
+    "generated_count": 200,
+    "message": "Сгенерировано 200 векторных эмбеддингов для Единого реестра ПО РФ."
+  }
+  ```
+
+### 4.5. Механизм самообучения и кэширования версий
+1. **Автоматическая регистрация новых хэшей**: При обнаружении новой версии софта через эвристику по путям (Шаг 2) новый SHA-256 хэш файла сразу сохраняется в `process_signatures`. Это гарантирует, что при сканировании следующих ПК в сети тот же файл будет мгновенно опознан уже на **Шаге 1** (по хэшу) без дополнительных проверок.
+2. **Исключение статических заглушек**: Все сопоставления хранятся в PostgreSQL (`process_signatures`, `installed_software`, `software_catalog`, `ru_software_registry`). С каждым обработанным дампом или отчётом агента скорость работы системы возрастает, а число обращений к внешним сервисам стремится к нулю.
+
+

@@ -34,25 +34,73 @@ onMounted(() => {
   samStore.loadDashboard();
 });
 
+// Форматирование числовых значений в рубли
 function formatRub(val?: number) {
   if (val === undefined || val === null) return '0 ₽';
   return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(val);
 }
 
-// Calculate summary numbers
+// Расчёт общей суммы штрафного риска (дефицит лицензий)
 const totalPenaltyRisk = computed(() => {
   return samStore.balance.reduce((sum, item) => sum + (item.total_penalty_risk_rub || 0), 0);
 });
 
+// Расчёт финансовых потерь от простаивающего («зомби») софта
 const totalZombieLosses = computed(() => {
-  return 25000 + 18000; // MS Office + Java on dismissed PC
+  return samStore.alerts
+    .filter((a) => a.alert_type === 'zombie_software' || a.alert_type === 'commercial_risk')
+    .reduce((sum, item) => sum + (item.financial_risk_amount || 0), 0);
 });
 
+// Количество активных инцидентов запрещённого ПО
 const prohibitedCount = computed(() => {
   return samStore.alerts.filter((a) => a.alert_type === 'prohibited_software').length;
 });
 
-// Filtered balance items
+// Динамическое текстовое описание дефицита софта
+const deficitSoftwareDescription = computed(() => {
+  const deficitItems = samStore.balance.filter((b) => b.balance < 0);
+  if (!deficitItems.length) return 'Дефицита лицензий не обнаружено. Баланс соблюдён.';
+  const details = deficitItems
+    .slice(0, 3)
+    .map((b) => `${b.software_name} (${b.balance} шт.)`)
+    .join(', ');
+  return `Установлено больше купленного: ${details}${deficitItems.length > 3 ? ' и др.' : ''}.`;
+});
+
+// Динамическое описание для карточки зомби-софта
+const zombieDescription = computed(() => {
+  const zombieAlerts = samStore.alerts.filter(
+    (a) => a.alert_type === 'zombie_software' || a.alert_type === 'commercial_risk'
+  );
+  if (!zombieAlerts.length) return 'Простаивающего ПО не обнаружено. Лицензии используются эффективно.';
+  return `Обнаружено предупреждений: ${zombieAlerts.length}. Софт простаивает или числится за уволенными.`;
+});
+
+// Динамическое описание для запрещённого софта
+const prohibitedDescription = computed(() => {
+  const prohibitedAlerts = samStore.alerts.filter((a) => a.alert_type === 'prohibited_software');
+  if (!prohibitedAlerts.length) return 'Запрещённого ПО в сети не обнаружено. Политика безопасности соблюдена.';
+  return `Зафиксировано ${prohibitedAlerts.length} инцидентов использования неавторизованного софта.`;
+});
+
+// Флаги наличия предупреждений для карточек комплаенса
+const hasPenaltyRisk = computed(() => {
+  return totalPenaltyRisk.value > 0 || samStore.balance.some((b) => b.balance < 0);
+});
+
+const hasZombieLosses = computed(() => {
+  return (
+    totalZombieLosses.value > 0 ||
+    samStore.alerts.some((a) => a.alert_type === 'zombie_software' || a.alert_type === 'commercial_risk')
+  );
+});
+
+const hasProhibitedRisk = computed(() => {
+  return prohibitedCount.value > 0;
+});
+
+// Фильтрация таблицы баланса лицензий
 const filteredBalance = computed(() => {
   let list = samStore.balance;
   if (searchQuery.value.trim()) {
@@ -65,7 +113,7 @@ const filteredBalance = computed(() => {
   return list;
 });
 
-// Filtered alerts
+// Фильтрация журнала инцидентов комплаенса
 const filteredAlerts = computed(() => {
   let list = samStore.alerts;
   if (activeTab.value === 'overuse') {
@@ -82,6 +130,7 @@ const filteredAlerts = computed(() => {
   return list;
 });
 
+// Запуск принудительного перерасчёта всех правил комплаенса на бэкенде
 async function triggerRecalculate() {
   recalculating.value = true;
   recalculateSuccess.value = false;
@@ -100,14 +149,11 @@ async function triggerRecalculate() {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок экрана -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Комплаенс-контроль ПО</h1>
-          <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold border border-red-200">
-            Ключевой экран SAM
-          </span>
         </div>
         <p class="text-xs text-slate-500 mt-1">
           Расчёт баланса (Куплено vs Установлено), штрафные санкции, «зомби-софт» и выявление запрещённого ПО
@@ -127,78 +173,164 @@ async function triggerRecalculate() {
       </div>
     </div>
 
-    <!-- Success Toast -->
+    <!-- Уведомление об успешном перерасчёте -->
     <div v-if="recalculateSuccess" class="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2">
       <CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0" />
       <span>Все правила комплаенса и баланс лицензий успешно пересчитаны по актуальным данным хостов!</span>
     </div>
 
-    <!-- Critical Risk Metric Banners -->
+    <!-- Карточки ключевых метрик комплаенса -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <!-- 1. Penalty Risk Card -->
-      <div class="p-5 bg-red-50 border-2 border-red-200 rounded-xl relative overflow-hidden shadow-2xs">
+      <!-- 1. Карточка штрафного риска (дефицит лицензий) -->
+      <div
+        :class="[
+          'p-5 border-2 rounded-xl relative overflow-hidden shadow-2xs transition-colors',
+          hasPenaltyRisk
+            ? 'bg-red-50 border-red-200'
+            : 'bg-emerald-50 border-emerald-200',
+        ]"
+      >
         <div class="flex items-start justify-between">
           <div>
-            <span class="text-xs font-bold uppercase text-red-700 tracking-wider block">
+            <span
+              :class="[
+                'text-xs font-bold uppercase tracking-wider block',
+                hasPenaltyRisk ? 'text-red-700' : 'text-emerald-700',
+              ]"
+            >
               1. Штрафной риск (Дефицит лицензий)
             </span>
-            <div class="text-2xl font-extrabold text-red-800 mt-1">
+            <div
+              :class="[
+                'text-2xl font-extrabold mt-1',
+                hasPenaltyRisk ? 'text-red-800' : 'text-emerald-800',
+              ]"
+            >
               {{ formatRub(totalPenaltyRisk) }}
             </div>
-            <p class="text-xs text-red-700 mt-1.5 leading-snug">
-              Установлено больше, чем закуплено: MS Office (+20 ПК), Oracle Java (+8 ПК).
+            <p
+              :class="[
+                'text-xs mt-1.5 leading-snug',
+                hasPenaltyRisk ? 'text-red-700' : 'text-emerald-700',
+              ]"
+            >
+              {{ deficitSoftwareDescription }}
             </p>
           </div>
-          <div class="p-3 bg-red-100 text-red-700 rounded-xl">
-            <AlertOctagon class="w-6 h-6" />
+          <div
+            :class="[
+              'p-3 rounded-xl transition-colors',
+              hasPenaltyRisk ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700',
+            ]"
+          >
+            <AlertOctagon v-if="hasPenaltyRisk" class="w-6 h-6" />
+            <CheckCircle2 v-else class="w-6 h-6" />
           </div>
         </div>
       </div>
 
-      <!-- 2. Zombie Software & Dismissed Employees Card -->
-      <div class="p-5 bg-amber-50 border-2 border-amber-200 rounded-xl relative overflow-hidden shadow-2xs">
+      <!-- 2. Карточка финансовых потерь (зомби-софт) -->
+      <div
+        :class="[
+          'p-5 border-2 rounded-xl relative overflow-hidden shadow-2xs transition-colors',
+          hasZombieLosses
+            ? 'bg-amber-50 border-amber-200'
+            : 'bg-emerald-50 border-emerald-200',
+        ]"
+      >
         <div class="flex items-start justify-between">
           <div>
-            <span class="text-xs font-bold uppercase text-amber-700 tracking-wider block">
+            <span
+              :class="[
+                'text-xs font-bold uppercase tracking-wider block',
+                hasZombieLosses ? 'text-amber-700' : 'text-emerald-700',
+              ]"
+            >
               2. Финансовые потери («Зомби-софт»)
             </span>
-            <div class="text-2xl font-extrabold text-amber-800 mt-1">
+            <div
+              :class="[
+                'text-2xl font-extrabold mt-1',
+                hasZombieLosses ? 'text-amber-800' : 'text-emerald-800',
+              ]"
+            >
               {{ formatRub(totalZombieLosses) }}
             </div>
-            <p class="text-xs text-amber-700 mt-1.5 leading-snug">
-              ПО простаивает >90 дней или числится на рабочих станциях уволенных сотрудников.
+            <p
+              :class="[
+                'text-xs mt-1.5 leading-snug',
+                hasZombieLosses ? 'text-amber-700' : 'text-emerald-700',
+              ]"
+            >
+              {{ zombieDescription }}
             </p>
           </div>
-          <div class="p-3 bg-amber-100 text-amber-700 rounded-xl">
-            <UserX class="w-6 h-6" />
+          <div
+            :class="[
+              'p-3 rounded-xl transition-colors',
+              hasZombieLosses ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700',
+            ]"
+          >
+            <UserX v-if="hasZombieLosses" class="w-6 h-6" />
+            <CheckCircle2 v-else class="w-6 h-6" />
           </div>
         </div>
       </div>
 
-      <!-- 3. Prohibited & Legal Risks Card -->
-      <div class="p-5 bg-slate-900 border-2 border-slate-800 text-white rounded-xl relative overflow-hidden shadow-2xs">
+      <!-- 3. Карточка рисков ИБ и запрещённого ПО -->
+      <div
+        :class="[
+          'p-5 border-2 rounded-xl relative overflow-hidden shadow-2xs transition-colors',
+          hasProhibitedRisk
+            ? 'bg-slate-900 border-slate-800 text-white'
+            : 'bg-emerald-50 border-emerald-200 text-slate-900',
+        ]"
+      >
         <div class="flex items-start justify-between">
           <div>
-            <span class="text-xs font-bold uppercase text-red-400 tracking-wider block">
+            <span
+              :class="[
+                'text-xs font-bold uppercase tracking-wider block',
+                hasProhibitedRisk ? 'text-red-400' : 'text-emerald-700',
+              ]"
+            >
               3. Риски ИБ и запрещённое ПО
             </span>
-            <div class="text-2xl font-extrabold text-white mt-1">
-              {{ prohibitedCount }} инцидента
+            <div
+              :class="[
+                'text-2xl font-extrabold mt-1',
+                hasProhibitedRisk ? 'text-white' : 'text-emerald-800',
+              ]"
+            >
+              {{ prohibitedCount }} инцидентов
             </div>
-            <p class="text-xs text-slate-300 mt-1.5 leading-snug">
-              Обнаружены торрент-клиенты и неавторизованное использование Personal лицензий.
+            <p
+              :class="[
+                'text-xs mt-1.5 leading-snug',
+                hasProhibitedRisk ? 'text-slate-300' : 'text-emerald-700',
+              ]"
+            >
+              {{ prohibitedDescription }}
             </p>
           </div>
-          <div class="p-3 bg-red-950 text-red-400 rounded-xl border border-red-800">
-            <Skull class="w-6 h-6" />
+          <div
+            :class="[
+              'p-3 rounded-xl border transition-colors',
+              hasProhibitedRisk
+                ? 'bg-red-950 text-red-400 border-red-800'
+                : 'bg-emerald-100 text-emerald-700 border-emerald-200',
+            ]"
+          >
+            <Skull v-if="hasProhibitedRisk" class="w-6 h-6" />
+            <CheckCircle2 v-else class="w-6 h-6" />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Interactive Navigation Tabs & Filter Bar -->
+    <!-- Вкладки фильтрации и строка поиска -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-      <!-- Tabs -->
+      <!-- Вкладки фильтрации -->
       <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-medium">
         <button
           type="button"
@@ -245,7 +377,7 @@ async function triggerRecalculate() {
         </button>
       </div>
 
-      <!-- Search Input -->
+      <!-- Поле поиска -->
       <div class="w-full sm:w-72">
         <Input
           v-model="searchQuery"
@@ -254,7 +386,7 @@ async function triggerRecalculate() {
       </div>
     </div>
 
-    <!-- Section 1: License Balance Table (Куплено vs Установлено) -->
+    <!-- Раздел 1: Таблица баланса лицензий (Куплено vs Установлено) -->
     <Card title="Баланс лицензий: Куплено vs Установлено по факту" noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -331,9 +463,12 @@ async function triggerRecalculate() {
       </div>
     </Card>
 
-    <!-- Section 2: Detailed Compliance Alerts Log -->
+    <!-- Раздел 2: Детальный журнал инцидентов комплаенса -->
     <Card title="Журнал инцидентов и угроз комплаенса">
-      <div class="space-y-3">
+      <div v-if="filteredAlerts.length === 0" class="text-xs text-slate-500 text-center py-6">
+        Инцидентов в выбранной категории не обнаружено
+      </div>
+      <div v-else class="space-y-3">
         <div
           v-for="alert in filteredAlerts"
           :key="alert.id"

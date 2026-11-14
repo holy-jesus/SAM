@@ -38,7 +38,7 @@ export const mockCategories: SoftwareCategory[] = [
     description: 'Официально разрешённое ПО, рекомендованное к использованию в корпоративной среде.',
     is_problematic: false,
     risk_level: 'none',
-    color_hex: '#10b981', // green
+    color_hex: '#10b981', // зелёный
   },
   {
     id: 2,
@@ -46,7 +46,7 @@ export const mockCategories: SoftwareCategory[] = [
     description: 'Версии ПО, снятые с поддержки вендором или подлежащие плановому обновлению.',
     is_problematic: true,
     risk_level: 'medium',
-    color_hex: '#f59e0b', // amber
+    color_hex: '#f59e0b', // янтарный
   },
   {
     id: 3,
@@ -54,7 +54,7 @@ export const mockCategories: SoftwareCategory[] = [
     description: 'Категорически запрещённое ПО (торрент-клиенты, майнеры, неавторизованные VPN, взломанный софт).',
     is_problematic: true,
     risk_level: 'critical',
-    color_hex: '#ef4444', // red
+    color_hex: '#ef4444', // красный
   },
   {
     id: 4,
@@ -62,7 +62,7 @@ export const mockCategories: SoftwareCategory[] = [
     description: 'ПО, обнаруженное на хостах, но ещё не прошедшее аудит соответствия политике компании.',
     is_problematic: false,
     risk_level: 'low',
-    color_hex: '#6366f1', // indigo
+    color_hex: '#6366f1', // индиго
   },
 ];
 
@@ -266,7 +266,7 @@ export const mockSoftwareCatalog: SoftwareCatalogItem[] = [
     category_id: 2, // Устаревший
     license_type: 'Commercial',
     max_installations: 10,
-    active_installations_count: 18, // Overuse and commercial risk!
+    active_installations_count: 18, // Перерасход и коммерческий риск!
     responsible_person: 'Сидоров К. (ИТ-отдел)',
     approval_status: 'review',
     created_at: '2026-03-01T09:00:00Z',
@@ -280,7 +280,7 @@ export const mockSoftwareCatalog: SoftwareCatalogItem[] = [
     category_id: 3, // Запрещенный!
     license_type: 'Freeware',
     max_installations: 0,
-    active_installations_count: 3, // Prohibited active installations!
+    active_installations_count: 3, // Запрещённые активные инсталляции!
     responsible_person: 'Служба ИБ',
     approval_status: 'rejected',
     created_at: '2026-01-10T09:00:00Z',
@@ -488,9 +488,9 @@ export const mockComputers: Computer[] = [
     os_version: '22H2',
     cpu_info: 'Intel Core i5-10500',
     ram_mb: 16384,
-    is_online: false, // OFFLINE
-    last_seen_at: '2026-08-15T18:00:00Z', // 3 months ago!
-    employee_id: 'emp-04', // Dismissed employee!
+    is_online: false, // Офлайн
+    last_seen_at: '2026-08-15T18:00:00Z', // 3 месяца назад!
+    employee_id: 'emp-04', // Уволенный сотрудник!
     employee: mockEmployees[3],
     installed_count: 5,
     created_at: '2023-11-25T11:00:00Z',
@@ -649,7 +649,7 @@ export const mockInstalledSoftware: InstalledSoftware[] = [
     is_verified_by_admin: true,
     is_deleted: false,
   },
-  // ZOMBIE SOFTWARE on dismissed employee computer
+  // «ЗОМБИ-СОФТ» на рабочей станции уволенного сотрудника
   {
     id: 'inst-06',
     computer_id: 'cmp-03',
@@ -659,7 +659,7 @@ export const mockInstalledSoftware: InstalledSoftware[] = [
     raw_publisher: 'Microsoft Corporation',
     raw_version: '16.0.14332',
     install_path: 'C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE',
-    last_launched_at: '2026-08-10T11:00:00Z', // 90+ days inactive!
+    last_launched_at: '2026-08-10T11:00:00Z', // Более 90 дней не запускался!
     source: 'agent',
     catalog_software_id: 'cat-01',
     catalog_software_name: 'Microsoft Office 2021 Professional Plus',
@@ -690,7 +690,7 @@ export const mockInstalledSoftware: InstalledSoftware[] = [
     is_verified_by_admin: true,
     is_deleted: false,
   },
-  // PROHIBITED SOFTWARE on computer 6
+  // ЗАПРЕЩЕННОЕ ПО на компьютере 6
   {
     id: 'inst-08',
     computer_id: 'cmp-06',
@@ -711,7 +711,7 @@ export const mockInstalledSoftware: InstalledSoftware[] = [
     is_verified_by_admin: false,
     is_deleted: false,
   },
-  // DIRTY PROCESS NAME awaiting smart match
+  // «ГРЯЗНОЕ» ИМЯ ПРОЦЕССА, ожидающее умного мэтчинга ИИ
   {
     id: 'inst-09',
     computer_id: 'cmp-06',
@@ -742,7 +742,7 @@ export const mockComplianceBalance: ComplianceBalanceItem[] = [
     license_type: 'Commercial',
     purchased_count: 100,
     installed_count: 120,
-    balance: -20, // Deficit!
+    balance: -20, // Дефицит!
     unit_cost: 25000.0,
     total_penalty_risk_rub: 500000.0, // 20 * 25,000 = 500,000 руб.
     status: 'critical_overuse',
@@ -755,7 +755,7 @@ export const mockComplianceBalance: ComplianceBalanceItem[] = [
     license_type: 'Commercial',
     purchased_count: 10,
     installed_count: 18,
-    balance: -8, // Deficit!
+    balance: -8, // Дефицит!
     unit_cost: 18000.0,
     total_penalty_risk_rub: 144000.0, // 8 * 18,000 = 144,000 руб.
     status: 'critical_overuse',
@@ -891,7 +891,7 @@ export const mockDashboardSummary: DashboardSummary = {
   total_employees: 142,
   total_installed_software_count: 1845,
   active_compliance_issues_count: 5,
-  total_financial_risk_rub: 969000.0, // 500k + 300k + 25k + 144k
+  total_financial_risk_rub: 969000.0, // 500 тыс. + 300 тыс. + 25 тыс. + 144 тыс. руб.
   licenses_purchased_count: 200,
   prohibited_count: 3,
   zombie_count: 14,

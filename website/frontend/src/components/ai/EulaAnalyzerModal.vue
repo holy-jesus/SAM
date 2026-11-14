@@ -14,6 +14,7 @@ const eulaText = ref('');
 const loading = ref(false);
 const result = ref<EulaAnalysisResult | null>(null);
 
+// Типовые предустановленные примеры для демонстрации
 const presetTemplates = [
   {
     name: 'Oracle Java OTN (Коммерческий риск)',
@@ -43,6 +44,7 @@ watch(
   }
 );
 
+// Запуск аудита текста лицензионного соглашения
 async function analyze() {
   if (!eulaText.value.trim()) return;
   loading.value = true;
@@ -63,7 +65,7 @@ async function analyze() {
     maxWidth="4xl"
   >
     <div class="space-y-4">
-      <!-- Quick Template Pills -->
+      <!-- Готовые шаблоны лицензий для быстрого тестирования -->
       <div class="flex items-center gap-2 flex-wrap text-xs">
         <span class="text-slate-500 font-medium">Быстрые примеры:</span>
         <button
@@ -77,7 +79,7 @@ async function analyze() {
         </button>
       </div>
 
-      <!-- Textarea -->
+      <!-- Текстовое поле ввода условий соглашения -->
       <div>
         <label class="block text-xs font-medium text-slate-700 mb-1">
           Текст лицензионного соглашения (EULA / License Terms)
@@ -97,9 +99,9 @@ async function analyze() {
         </Button>
       </div>
 
-      <!-- Result View -->
+      <!-- Результаты анализа соглашения -->
       <div v-if="result" class="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs space-y-4 p-5">
-        <!-- Top Badges Grid -->
+        <!-- Индикаторы рисков и коммерческих прав -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div class="p-3 rounded-lg border bg-slate-50 flex items-center justify-between">
             <div>
@@ -135,7 +137,7 @@ async function analyze() {
           </div>
         </div>
 
-        <!-- Russian Summary Alert -->
+        <!-- Экспертное резюме юридического аудитора ИИ -->
         <div
           :class="[
             'p-4 rounded-lg border text-xs leading-relaxed',
@@ -151,7 +153,7 @@ async function analyze() {
           {{ result.summary_ru }}
         </div>
 
-        <!-- Key Restrictions List -->
+        <!-- Перечень выявленных ограничений -->
         <div>
           <h5 class="text-xs font-semibold text-slate-800 mb-2">Ключевые юридические ограничения:</h5>
           <ul class="space-y-1.5 text-xs text-slate-600">

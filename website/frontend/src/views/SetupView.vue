@@ -9,8 +9,8 @@ import Input from '@/components/ui/Input.vue';
 const router = useRouter();
 const authStore = useAuthStore();
 
-const username = ref('admin');
-const fullName = ref('Главный Администратор');
+const username = ref('');
+const fullName = ref('');
 const password = ref('');
 const confirmPassword = ref('');
 const error = ref('');
@@ -43,7 +43,7 @@ async function handleInit() {
 <template>
   <div class="min-h-screen bg-slate-50 flex items-center justify-center p-4">
     <div class="max-w-md w-full bg-white rounded-2xl shadow-xl border border-slate-200/80 p-8 space-y-6">
-      <!-- Icon & Welcome Header -->
+      <!-- Иконка и приветственный заголовок -->
       <div class="text-center space-y-2">
         <div class="w-14 h-14 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto shadow-md">
           <Shield class="w-8 h-8" />
@@ -58,7 +58,7 @@ async function handleInit() {
         {{ error }}
       </div>
 
-      <!-- Form -->
+      <!-- Форма первоначальной настройки -->
       <form class="space-y-4" @submit.prevent="handleInit">
         <Input
           v-model="fullName"

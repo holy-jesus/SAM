@@ -14,7 +14,7 @@ from sam.schemas.connector import (
     ImportResultResponse,
     ImportHistoryResponse,
 )
-from sam.services.ai_matcher import match_raw_process_to_catalog
+from sam.services.matcher import match_raw_process_to_catalog
 from sam.services.dump_parser import parse_dump_file
 from sam.services.compliance_engine import recalculate_compliance_alerts
 
@@ -65,8 +65,15 @@ async def receive_agent_report(payload: AgentReportRequest, db: AsyncSession = D
     # 2. Process software items
     matched_count = 0
     for sw in payload.installed_software:
-        # Match with catalog
-        match_res = await match_raw_process_to_catalog(db, sw.display_name, sw.publisher)
+        # Match with catalog using Hash -> Path Heuristics -> RU Registry -> Embeddings -> Wikimedia -> OpenAI
+        match_res = await match_raw_process_to_catalog(
+            db=db,
+            raw_process_name=sw.display_name,
+            binary_hash=sw.binary_hash,
+            publisher=sw.publisher,
+            install_path=sw.install_path,
+            reported_version=sw.version,
+        )
         cat_id = match_res.get("matched_catalog_software_id")
         category_id = match_res.get("category_id") or 1
         conf = match_res.get("confidence", 0.0)
@@ -200,9 +207,18 @@ async def upload_dump_file(
         comp = computers_by_serial[sn]
         publisher = r.get("publisher", "").strip()
         version = r.get("version", "").strip()
+        binary_hash = r.get("binary_hash", "").strip() or None
+        install_path = r.get("install_path", "").strip() or None
 
-        # Match software
-        match_res = await match_raw_process_to_catalog(db, display_name, publisher)
+        # Match software using Hash -> Path Heuristics -> RU Registry -> Embeddings -> Wikimedia -> OpenAI
+        match_res = await match_raw_process_to_catalog(
+            db=db,
+            raw_process_name=display_name,
+            binary_hash=binary_hash,
+            publisher=publisher,
+            install_path=install_path,
+            reported_version=version,
+        )
         cat_id = match_res.get("matched_catalog_software_id")
         category_id = match_res.get("category_id") or 1
         conf = match_res.get("confidence", 0.0)
@@ -214,6 +230,8 @@ async def upload_dump_file(
             raw_display_name=display_name,
             raw_publisher=publisher,
             raw_version=version,
+            install_path=install_path,
+            binary_hash=binary_hash,
             source="automatic",
             catalog_software_id=uuid.UUID(cat_id) if cat_id else None,
             category_id=category_id,

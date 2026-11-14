@@ -28,7 +28,7 @@ const messages = ref<AIChatMessage[]>([
 Я преобразую ваши вопросы на естественном языке в структурированные SQL-запросы к базе данных (Text-to-SQL + RAG) и анализирую комплаенс, финансовые риски и рабочие станции.
 
 Задайте вопрос или выберите одну из готовых тем ниже.`,
-    timestamp: '12:00',
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   },
 ]);
 
@@ -93,7 +93,7 @@ async function send(query?: string) {
 
 <template>
   <div class="space-y-6 max-w-5xl mx-auto">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex items-center justify-between">
       <div>
         <div class="flex items-center gap-2">
@@ -108,7 +108,7 @@ async function send(query?: string) {
       </div>
     </div>
 
-    <!-- Featured Prompt Cards Grid -->
+    <!-- Сетка карточек с готовыми вопросами -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       <button
         v-for="p in featuredPrompts"
@@ -129,16 +129,16 @@ async function send(query?: string) {
       </button>
     </div>
 
-    <!-- Main Chat Window -->
+    <!-- Основное окно чата с ИИ -->
     <div class="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[560px] overflow-hidden">
-      <!-- Chat Header -->
+      <!-- Шапка диалога -->
       <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
         <div class="flex items-center gap-2">
           <div class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center">
             <Bot class="w-4 h-4" />
           </div>
           <div>
-            <span class="text-xs font-bold text-slate-800">Интеллектуальный агент SAM</span>
+            <span class="text-xs font-bold text-slate-800">Интеллектуальный агент Сэм</span>
             <span class="text-[10px] text-emerald-600 font-medium ml-2">● В сети</span>
           </div>
         </div>
@@ -147,7 +147,7 @@ async function send(query?: string) {
         </div>
       </div>
 
-      <!-- Messages Stream -->
+      <!-- Лента сообщений -->
       <div ref="chatContainer" class="flex-1 p-5 overflow-y-auto space-y-4 text-xs bg-slate-50/20">
         <div
           v-for="msg in messages"
@@ -164,7 +164,7 @@ async function send(query?: string) {
           >
             <div class="whitespace-pre-line text-xs font-sans">{{ msg.text }}</div>
 
-            <!-- SQL Query Transparency -->
+            <!-- Прозрачность: сгенерированный SQL-запрос -->
             <div v-if="msg.sql_executed" class="pt-3 border-t border-slate-100">
               <div class="flex items-center gap-1.5 text-slate-500 font-semibold text-[10px] uppercase mb-1">
                 <Database class="w-3.5 h-3.5 text-indigo-600" /> Сгенерированный SQL-запрос:
@@ -172,7 +172,7 @@ async function send(query?: string) {
               <pre class="bg-slate-900 text-emerald-400 p-2.5 rounded-lg font-mono text-[11px] overflow-x-auto">{{ msg.sql_executed }}</pre>
             </div>
 
-            <!-- Result Table -->
+            <!-- Таблица с результатами выполнения запроса -->
             <div v-if="msg.data && msg.data.length" class="pt-2 border-t border-slate-100 overflow-x-auto">
               <table class="w-full text-left border-collapse text-[11px]">
                 <thead>
@@ -201,7 +201,7 @@ async function send(query?: string) {
         </div>
       </div>
 
-      <!-- Input Bar -->
+      <!-- Панель ввода вопроса -->
       <div class="p-3 bg-white border-t border-slate-200 flex gap-2">
         <input
           v-model="queryText"

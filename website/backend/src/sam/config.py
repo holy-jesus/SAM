@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     ZOMBIE_THRESHOLD_DAYS: int = 60
     AUTO_SEED: bool = True
 
+    # OpenAI / LLM
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    EMBEDDING_DIM: int = 1536
+
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
 

@@ -19,7 +19,7 @@ import {
 } from '@/types';
 import * as mock from './mockData';
 
-// Axios instance with bearer token interceptor
+// Экземпляр Axios с автоматическим добавлением Bearer-токена
 export const apiClient = axios.create({
   baseURL: '/api/v1',
   timeout: 5000,
@@ -36,7 +36,7 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// In-memory state when running in local mock fallback mode
+// Локальное состояние для автономного режима (fallback при отсутствии бэкенда)
 let isInitializedState = true;
 let employeesState: Employee[] = [...mock.mockEmployees];
 let computersState: Computer[] = [...mock.mockComputers];
@@ -47,11 +47,11 @@ let installedSoftwareState: InstalledSoftware[] = [...mock.mockInstalledSoftware
 let complianceAlertsState: ComplianceAlert[] = [...mock.mockComplianceAlerts];
 let importHistoryState: ImportHistoryItem[] = [...mock.mockImportHistory];
 
-// Helper to simulate slight network delay for natural feel
+// Вспомогательная задержка для плавности интерфейса в демо-режиме
 const delay = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const api = {
-  // === Setup & Auth ===
+  // === Настройка и авторизация ===
   async getSetupStatus(): Promise<{ is_initialized: boolean }> {
     try {
       const res = await apiClient.get('/setup/status');
@@ -99,7 +99,7 @@ export const api = {
     }
   },
 
-  // === Dashboard ===
+  // === Сводный дашборд ===
   async getDashboardSummary(): Promise<DashboardSummary> {
     try {
       const res = await apiClient.get('/dashboard/summary');
@@ -119,7 +119,7 @@ export const api = {
     }
   },
 
-  // === Compliance ===
+  // === Комплаенс-контроль ===
   async getComplianceBalance(): Promise<ComplianceBalanceItem[]> {
     try {
       const res = await apiClient.get('/compliance/balance');
@@ -151,7 +151,7 @@ export const api = {
     }
   },
 
-  // === Employees ===
+  // === Сотрудники ===
   async getEmployees(params?: { search?: string; department?: string; status?: string }): Promise<Employee[]> {
     try {
       const res = await apiClient.get('/employees', { params });
@@ -232,7 +232,7 @@ export const api = {
     }
   },
 
-  // === Computers ===
+  // === Компьютеры и хосты ===
   async getComputers(params?: { search?: string; is_online?: boolean }): Promise<Computer[]> {
     try {
       const res = await apiClient.get('/computers', { params });
@@ -365,7 +365,7 @@ export const api = {
     }
   },
 
-  // === Installed Software ===
+  // === Установленное ПО ===
   async getInstalledSoftware(params?: { search?: string; category_id?: number }): Promise<InstalledSoftware[]> {
     try {
       const res = await apiClient.get('/installed-software', { params });
@@ -402,7 +402,7 @@ export const api = {
     }
   },
 
-  // === Software Catalog (Whitelist) ===
+  // === Каталог разрешённого ПО (Белый список) ===
   async getCatalog(): Promise<SoftwareCatalogItem[]> {
     try {
       const res = await apiClient.get('/catalog');
@@ -465,7 +465,7 @@ export const api = {
     }
   },
 
-  // === Licenses ===
+  // === Лицензии ===
   async getLicenses(): Promise<License[]> {
     try {
       const res = await apiClient.get('/licenses');
@@ -529,7 +529,7 @@ export const api = {
     }
   },
 
-  // === Software Categories ===
+  // === Категории ПО ===
   async getCategories(): Promise<SoftwareCategory[]> {
     try {
       const res = await apiClient.get('/categories');
@@ -585,7 +585,7 @@ export const api = {
     }
   },
 
-  // === Classifiers & Russian Registry ===
+  // === Классификатор и Единый реестр отечественного ПО ===
   async getClassifiers(): Promise<SoftwareClassifier[]> {
     try {
       const res = await apiClient.get('/classifiers');
@@ -618,8 +618,8 @@ export const api = {
     } catch {
       await delay();
       return {
-        last_updated_at: '2026-11-14T04:00:00Z',
-        total_records: 22480,
+        last_updated_at: new Date().toISOString(),
+        total_records: mock.mockRuRegistry.length,
       };
     }
   },
@@ -632,13 +632,13 @@ export const api = {
       await delay(800);
       return {
         success: true,
-        message: 'Реестр отечественного ПО успешно синхронизирован с reestr.digital.gov.ru',
-        updated_count: 22480,
+        message: 'Единый реестр отечественного ПО успешно синхронизирован с reestr.digital.gov.ru',
+        updated_count: mock.mockRuRegistry.length,
       };
     }
   },
 
-  // === Dump Upload & History ===
+  // === Импорт дампов хостов и история загрузок ===
   async uploadDump(file: File): Promise<{
     filename: string;
     total_rows: number;
@@ -686,14 +686,14 @@ export const api = {
     }
   },
 
-  // === AI Endpoints ===
+  // === Модули искусственного интеллекта (ИИ) ===
   async smartMatchSoftware(rawProcessName: string): Promise<SmartMatchResult> {
     try {
       const res = await apiClient.post('/ai/match-software', { raw_process_name: rawProcessName });
       return res.data;
     } catch {
       await delay(450);
-      // Smart heuristic fallback
+      // Эвристическое сопоставление в автономном режиме
       const lower = rawProcessName.toLowerCase();
       if (lower.includes('visual') || lower.includes('studio') || lower.includes('devenv')) {
         return {

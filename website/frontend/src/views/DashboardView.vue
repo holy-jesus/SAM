@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSamStore } from '@/stores/sam';
 import {
@@ -16,6 +16,7 @@ import {
   ArrowRight,
   RefreshCw,
   CheckCircle2,
+  Check,
   AlertOctagon,
   Clock,
   Sparkles,
@@ -31,15 +32,38 @@ onMounted(() => {
   samStore.loadDashboard();
 });
 
+// Форматирование чисел в денежный формат рублей
 function formatRub(val?: number) {
   if (val === undefined || val === null) return '0 ₽';
   return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(val);
+}
+
+// Расчёт процента ПК, закреплённых за сотрудниками
+const assignedPercentage = computed(() => {
+  const total = samStore.summary?.total_computers || samStore.computers.length || 0;
+  if (!total) return 0;
+  const assigned = samStore.computers.filter((c) => c.employee_id).length;
+  return Math.round((assigned / total) * 100);
+});
+
+// Расчёт процента софта, сопоставленного с эталонным каталогом
+const catalogCoveragePercentage = computed(() => {
+  const total = samStore.summary?.total_installed_software_count || samStore.installedSoftware.length || 0;
+  if (!total) return 0;
+  const matched = samStore.installedSoftware.filter((s) => s.catalog_software_id).length;
+  return Math.round((matched / total) * 100);
+});
+
+// Обработчик быстрого вызова умного мэтчинга для нераспознанного софта
+function handleSmartMatchShortcut() {
+  const unverified = samStore.installedSoftware.find((s) => !s.catalog_software_id);
+  samStore.triggerSmartMatch(unverified?.raw_display_name || '');
 }
 </script>
 
 <template>
   <div class="space-y-6">
-    <!-- Page Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Сводка системы (Дашборд SAM)</h1>
@@ -60,25 +84,25 @@ function formatRub(val?: number) {
       </div>
     </div>
 
-    <!-- Home Assistant Style Grid: Metric Tiles -->
+    <!-- Плитки ключевых метрик (стиль Home Assistant) -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <!-- Computers Tile -->
+      <!-- Плитка: Рабочие станции -->
       <Card class="hover:border-blue-300 transition-all">
         <div class="flex items-center justify-between">
           <div>
             <span class="text-xs font-medium text-slate-500 block">Рабочие станции</span>
             <div class="text-2xl font-bold text-slate-900 mt-1">
-              {{ samStore.summary?.total_computers || 156 }}
+              {{ samStore.summary?.total_computers ?? 0 }}
             </div>
             <div class="flex items-center gap-2 mt-2 text-xs">
               <span class="inline-flex items-center gap-1 text-emerald-600 font-medium">
                 <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                {{ samStore.summary?.online_computers || 128 }} в сети
+                {{ samStore.summary?.online_computers ?? 0 }} в сети
               </span>
               <span class="text-slate-300">•</span>
               <span class="inline-flex items-center gap-1 text-slate-500">
                 <span class="w-2 h-2 rounded-full bg-slate-300"></span>
-                {{ samStore.summary?.offline_computers || 28 }} офлайн
+                {{ samStore.summary?.offline_computers ?? 0 }} офлайн
               </span>
             </div>
           </div>
@@ -88,16 +112,16 @@ function formatRub(val?: number) {
         </div>
       </Card>
 
-      <!-- Employees Tile -->
+      <!-- Плитка: Сотрудники компании -->
       <Card class="hover:border-indigo-300 transition-all">
         <div class="flex items-center justify-between">
           <div>
             <span class="text-xs font-medium text-slate-500 block">Сотрудники компании</span>
             <div class="text-2xl font-bold text-slate-900 mt-1">
-              {{ samStore.summary?.total_employees || 142 }}
+              {{ samStore.summary?.total_employees ?? 0 }}
             </div>
             <p class="text-xs text-slate-500 mt-2">
-              Закреплено за ПК: <span class="font-semibold text-slate-700">97%</span>
+              Закреплено за ПК: <span class="font-semibold text-slate-700">{{ assignedPercentage }}%</span>
             </p>
           </div>
           <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -106,16 +130,16 @@ function formatRub(val?: number) {
         </div>
       </Card>
 
-      <!-- Installed Software Tile -->
+      <!-- Плитка: Установленное ПО -->
       <Card class="hover:border-purple-300 transition-all">
         <div class="flex items-center justify-between">
           <div>
             <span class="text-xs font-medium text-slate-500 block">Установленное ПО</span>
             <div class="text-2xl font-bold text-slate-900 mt-1">
-              {{ samStore.summary?.total_installed_software_count || 1845 }}
+              {{ samStore.summary?.total_installed_software_count ?? 0 }}
             </div>
             <p class="text-xs text-slate-500 mt-2">
-              В эталонном каталоге: <span class="font-semibold text-slate-700">92%</span>
+              В эталонном каталоге: <span class="font-semibold text-slate-700">{{ catalogCoveragePercentage }}%</span>
             </p>
           </div>
           <div class="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -124,18 +148,18 @@ function formatRub(val?: number) {
         </div>
       </Card>
 
-      <!-- Financial Risk Tile -->
-      <Card class="border-red-200 bg-red-50/20 hover:border-red-300 transition-all">
+      <!-- Плитка: Финансовый штрафной риск -->
+      <Card v-if="samStore.summary?.active_compliance_issues_count" class="border-red-200 bg-red-50/20 hover:border-red-300 transition-all">
         <div class="flex items-center justify-between">
           <div>
             <span class="text-xs font-medium text-red-600 block flex items-center gap-1">
               <AlertTriangle class="w-3.5 h-3.5 text-red-600" /> Финансовый штрафной риск
             </span>
             <div class="text-2xl font-bold text-red-700 mt-1">
-              {{ formatRub(samStore.summary?.total_financial_risk_rub || 969000) }}
+              {{ formatRub(samStore.summary?.total_financial_risk_rub ?? 0) }}
             </div>
             <p class="text-xs text-red-600 font-medium mt-2">
-              {{ samStore.summary?.active_compliance_issues_count || 5 }} критических нарушений
+              {{ samStore.summary?.active_compliance_issues_count ?? 0 }} критических нарушений
             </p>
           </div>
           <div class="w-12 h-12 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
@@ -143,9 +167,29 @@ function formatRub(val?: number) {
           </div>
         </div>
       </Card>
+
+      <!-- Плитка: Отсутствие финансовых рисков -->
+      <Card v-else class="border-emerald-200 bg-emerald-50/20 hover:border-emerald-300 transition-all">
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs font-medium text-emerald-700 block flex items-center gap-1">
+              <Check class="w-3.5 h-3.5 text-emerald-600" /> Финансовые риски отсутствуют
+            </span>
+            <div class="text-2xl font-bold text-emerald-800 mt-1">
+              0 ₽
+            </div>
+            <p class="text-xs text-emerald-700 font-medium mt-2">
+              Все лицензии соответствуют нормам
+            </p>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+            <Check class="w-6 h-6" />
+          </div>
+        </div>
+      </Card>
     </div>
 
-    <!-- Quick Shortcuts Bar (Home Assistant style quick actions) -->
+    <!-- Панель быстрых действий (в стиле Home Assistant) -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <button
         type="button"
@@ -164,7 +208,7 @@ function formatRub(val?: number) {
       <button
         type="button"
         class="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 transition cursor-pointer text-left shadow-2xs"
-        @click="samStore.triggerSmartMatch('studio_visual_2022.exe')"
+        @click="handleSmartMatchShortcut"
       >
         <div class="w-9 h-9 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
           <Wand2 class="w-5 h-5" />
@@ -204,9 +248,9 @@ function formatRub(val?: number) {
       </button>
     </div>
 
-    <!-- Main Content 2-Column Grid -->
+    <!-- Сетка из двух колонок: лента инцидентов и сводка -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Left: Active Compliance Alerts List (2 Cols) -->
+      <!-- Левая колонка: активные инциденты комплаенса -->
       <div class="lg:col-span-2 space-y-4">
         <Card title="Критические инциденты и предупреждения комплаенса">
           <template #actions>
@@ -216,7 +260,11 @@ function formatRub(val?: number) {
             </Button>
           </template>
 
-          <div class="space-y-3">
+          <div v-if="samStore.alerts.length === 0" class="text-xs text-slate-500 text-center py-8">
+            Нарушений комплаенса не обнаружено. Все лицензии соответствуют установкам.
+          </div>
+
+          <div v-else class="space-y-3">
             <div
               v-for="alert in samStore.alerts"
               :key="alert.id"
@@ -267,7 +315,7 @@ function formatRub(val?: number) {
 
                 <div v-if="alert.financial_risk_amount > 0" class="text-right shrink-0">
                   <span class="text-[10px] text-slate-400 block font-medium">Сумма риска:</span>
-                  <span class="text-xs font-bold text-red-600">
+                  <span class="text-xs font-bold text-red-600 font-mono">
                     {{ formatRub(alert.financial_risk_amount) }}
                   </span>
                 </div>
@@ -277,15 +325,19 @@ function formatRub(val?: number) {
         </Card>
       </div>
 
-      <!-- Right Column: Balance Summary & System Health -->
+      <!-- Правая колонка: баланс лицензий и компоненты платформы -->
       <div class="space-y-6">
-        <!-- License Balance Summary Widget -->
+        <!-- Виджет баланса ключевых лицензий -->
         <Card title="Баланс ключевых лицензий">
           <template #actions>
             <Button variant="ghost" size="sm" @click="router.push('/compliance')">Детали</Button>
           </template>
 
-          <div class="space-y-4">
+          <div v-if="samStore.balance.length === 0" class="text-xs text-slate-500 text-center py-6">
+            Лицензии ещё не внесены в систему
+          </div>
+
+          <div v-else class="space-y-4">
             <div v-for="item in samStore.balance.slice(0, 4)" :key="item.software_id" class="space-y-1.5">
               <div class="flex items-center justify-between text-xs">
                 <span class="font-semibold text-slate-800 truncate max-w-[170px]" :title="item.software_name">
@@ -300,7 +352,7 @@ function formatRub(val?: number) {
                   {{ item.installed_count }} / {{ item.purchased_count }} ({{ item.balance > 0 ? '+' : '' }}{{ item.balance }})
                 </span>
               </div>
-              <!-- Progress bar -->
+              <!-- Прогресс-бар использования лицензий -->
               <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                 <div
                   :class="[
@@ -318,7 +370,7 @@ function formatRub(val?: number) {
           </div>
         </Card>
 
-        <!-- System Architecture Card -->
+        <!-- Карточка статуса компонентов платформы -->
         <Card title="Компоненты платформы">
           <div class="space-y-2.5 text-xs">
             <div class="flex items-center justify-between py-1.5 border-b border-slate-100">
@@ -337,7 +389,9 @@ function formatRub(val?: number) {
             </div>
             <div class="flex items-center justify-between py-1.5 border-b border-slate-100">
               <span class="text-slate-600">Единый реестр ПО РФ</span>
-              <span class="font-medium text-slate-700">22 480 записей</span>
+              <span class="font-medium text-slate-700 font-mono">
+                {{ samStore.registryStatus ? samStore.registryStatus.total_records.toLocaleString('ru-RU') + ' записей' : 'Синхронизация...' }}
+              </span>
             </div>
             <div class="flex items-center justify-between py-1.5">
               <span class="text-slate-600">ИИ-модули (Мэтчинг / EULA)</span>

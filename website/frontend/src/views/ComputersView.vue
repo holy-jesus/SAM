@@ -32,7 +32,7 @@ const loading = ref(false);
 const searchQuery = ref('');
 const onlineFilter = ref<string>('all');
 
-// Modals
+// Модальные окна
 const isCreateModalOpen = ref(false);
 const isDetailsModalOpen = ref(false);
 const isAddSoftwareModalOpen = ref(false);
@@ -44,10 +44,10 @@ const compForm = ref({
   serial_number: '',
   ip_address: '',
   mac_address: '',
-  os_name: 'Windows 11 Pro',
-  os_version: '23H2',
-  cpu_info: 'Intel Core i7-13700K',
-  ram_mb: 16384,
+  os_name: '',
+  os_version: '',
+  cpu_info: '',
+  ram_mb: 0,
   employee_id: '' as string | null,
 });
 
@@ -55,7 +55,7 @@ const softForm = ref({
   catalog_software_id: '',
   raw_display_name: '',
   raw_publisher: '',
-  raw_version: '1.0',
+  raw_version: '',
 });
 
 onMounted(async () => {
@@ -101,13 +101,13 @@ function openCreate() {
   editingComputer.value = null;
   compForm.value = {
     hostname: '',
-    serial_number: 'SN-' + Math.floor(1000 + Math.random() * 9000),
-    ip_address: '192.168.10.150',
-    mac_address: '00:1A:2B:3C:4D:EE',
-    os_name: 'Windows 11 Pro',
-    os_version: '23H2',
-    cpu_info: 'Intel Core i5-13400',
-    ram_mb: 16384,
+    serial_number: '',
+    ip_address: '',
+    mac_address: '',
+    os_name: '',
+    os_version: '',
+    cpu_info: '',
+    ram_mb: 0,
     employee_id: employees.value[0]?.id || null,
   };
   isCreateModalOpen.value = true;
@@ -120,10 +120,10 @@ function openEdit(comp: Computer) {
     serial_number: comp.serial_number,
     ip_address: comp.ip_address || '',
     mac_address: comp.mac_address || '',
-    os_name: comp.os_name || 'Windows 11 Pro',
+    os_name: comp.os_name || '',
     os_version: comp.os_version || '',
     cpu_info: comp.cpu_info || '',
-    ram_mb: comp.ram_mb || 16384,
+    ram_mb: comp.ram_mb ?? 0,
     employee_id: comp.employee_id || null,
   };
   isCreateModalOpen.value = true;
@@ -159,7 +159,7 @@ function openAddSoftware(comp: Computer) {
     catalog_software_id: catalog.value[0]?.id || '',
     raw_display_name: catalog.value[0]?.name || '',
     raw_publisher: catalog.value[0]?.vendor || '',
-    raw_version: '1.0',
+    raw_version: '',
   };
   isAddSoftwareModalOpen.value = true;
 }
@@ -184,7 +184,7 @@ async function removeSoftware(instId: string) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Компьютеры и рабочие станции</h1>
@@ -199,7 +199,7 @@ async function removeSoftware(instId: string) {
       </Button>
     </div>
 
-    <!-- Filters Bar -->
+    <!-- Панель фильтров -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
       <div class="w-full sm:w-80">
         <Input
@@ -221,7 +221,7 @@ async function removeSoftware(instId: string) {
       </div>
     </div>
 
-    <!-- Computers Table -->
+    <!-- Таблица рабочих станций -->
     <Card noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -313,7 +313,7 @@ async function removeSoftware(instId: string) {
       </div>
     </Card>
 
-    <!-- Create/Edit Computer Modal -->
+    <!-- Модальное окно добавления / редактирования ПК -->
     <Modal
       v-model="isCreateModalOpen"
       :title="editingComputer ? 'Редактирование ПК' : 'Регистрация нового ПК'"
@@ -356,7 +356,7 @@ async function removeSoftware(instId: string) {
       </form>
     </Modal>
 
-    <!-- Computer Details & Installed Software Modal -->
+    <!-- Модальное окно сведений о ПК и установленном софте -->
     <Modal
       v-model="isDetailsModalOpen"
       :title="selectedComputer?.hostname || 'Карточка рабочей станции'"
@@ -364,7 +364,7 @@ async function removeSoftware(instId: string) {
       maxWidth="4xl"
     >
       <div v-if="selectedComputer" class="space-y-5">
-        <!-- Specs Bar -->
+        <!-- Характеристики оборудования -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
           <div>
             <span class="text-slate-400 block text-[10px] uppercase font-bold">ОС</span>
@@ -387,7 +387,7 @@ async function removeSoftware(instId: string) {
           </div>
         </div>
 
-        <!-- Installed Software Section -->
+        <!-- Раздел установленного ПО -->
         <div>
           <div class="flex items-center justify-between mb-3">
             <h4 class="font-bold text-slate-900 text-sm">
@@ -459,7 +459,7 @@ async function removeSoftware(instId: string) {
       </template>
     </Modal>
 
-    <!-- Modal to Manually Add Installed Software -->
+    <!-- Модальное окно ручного добавления софта -->
     <Modal
       v-model="isAddSoftwareModalOpen"
       title="Ручное добавление софта на ПК"

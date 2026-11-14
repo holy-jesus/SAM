@@ -5,6 +5,10 @@ from pydantic import BaseModel
 
 class SmartMatchRequest(BaseModel):
     raw_process_name: str
+    binary_hash: Optional[str] = None
+    publisher: Optional[str] = None
+    install_path: Optional[str] = None
+    version: Optional[str] = None
 
 
 class SmartMatchResponse(BaseModel):
@@ -12,8 +16,10 @@ class SmartMatchResponse(BaseModel):
     matched_catalog_software_id: Optional[str] = None
     matched_name: Optional[str] = None
     vendor: Optional[str] = None
+    matched_version: Optional[str] = None
     confidence: float
     reasoning: str
+    match_source: Optional[str] = None
 
 
 class BatchNormalizeResponse(BaseModel):

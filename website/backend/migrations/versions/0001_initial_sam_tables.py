@@ -202,8 +202,30 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
 
+    # 12. process_signatures (Самообучающаяся база сигнатур и сопоставлений)
+    op.create_table(
+        "process_signatures",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("process_name", sa.String(500), nullable=False),
+        sa.Column("normalized_name", sa.String(500), nullable=False),
+        sa.Column("binary_hash", sa.String(64), nullable=True),
+        sa.Column("catalog_software_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("software_catalog.id", ondelete="CASCADE"), nullable=True),
+        sa.Column("ru_registry_id", sa.Integer(), sa.ForeignKey("ru_software_registry.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("vendor", sa.String(500), nullable=True),
+        sa.Column("confidence", sa.Float(), server_default="1.0", nullable=False),
+        sa.Column("match_source", sa.String(50), nullable=False),
+        sa.Column("embedding", postgresql.ARRAY(sa.Float()), nullable=True),
+        sa.Column("times_matched", sa.Integer(), server_default="1", nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    )
+    op.create_index("idx_proc_sig_name", "process_signatures", ["process_name"])
+    op.create_index("idx_proc_sig_norm", "process_signatures", ["normalized_name"])
+    op.create_index("idx_proc_sig_hash", "process_signatures", ["binary_hash"])
+
 
 def downgrade() -> None:
+    op.drop_table("process_signatures")
     op.drop_table("import_history")
     op.drop_table("compliance_alerts")
     op.drop_table("installed_software")

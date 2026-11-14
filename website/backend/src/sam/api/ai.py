@@ -15,7 +15,7 @@ from sam.schemas.ai import (
     AIChatRequest,
     AIChatResponse,
 )
-from sam.services.ai_matcher import match_raw_process_to_catalog
+from sam.services.matcher import match_raw_process_to_catalog
 from sam.services.ai_eula import analyze_eula_text
 from sam.services.ai_chat import process_ai_chat_query
 from sam.services.compliance_engine import recalculate_compliance_alerts
@@ -25,20 +25,28 @@ router = APIRouter(prefix="/ai", tags=["AI Modules"])
 
 @router.post("/match-software", response_model=SmartMatchResponse)
 async def match_software(payload: SmartMatchRequest, db: AsyncSession = Depends(get_db)):
-    result = await match_raw_process_to_catalog(db, payload.raw_process_name)
+    result = await match_raw_process_to_catalog(
+        db=db,
+        raw_process_name=payload.raw_process_name,
+        binary_hash=payload.binary_hash,
+        publisher=payload.publisher,
+        install_path=payload.install_path,
+        reported_version=payload.version,
+    )
     return {
         "raw_process_name": result["raw_process_name"],
-        "matched_catalog_software_id": result["matched_catalog_software_id"],
-        "matched_name": result["matched_name"],
-        "vendor": result["vendor"],
-        "confidence": result["confidence"],
-        "reasoning": result["reasoning"],
+        "matched_catalog_software_id": result.get("matched_catalog_software_id"),
+        "matched_name": result.get("matched_name"),
+        "vendor": result.get("vendor"),
+        "matched_version": result.get("matched_version"),
+        "confidence": result.get("confidence", 0.0),
+        "reasoning": result.get("reasoning", ""),
+        "match_source": result.get("match_source"),
     }
 
 
 @router.post("/batch-normalize", response_model=BatchNormalizeResponse)
 async def batch_normalize(db: AsyncSession = Depends(get_db)):
-    # Find installed software not yet verified or unmatched
     result = await db.execute(
         select(InstalledSoftware).where(
             InstalledSoftware.is_verified_by_admin == False
@@ -51,7 +59,12 @@ async def batch_normalize(db: AsyncSession = Depends(get_db)):
 
     for item in items:
         match_res = await match_raw_process_to_catalog(
-            db, item.raw_display_name, item.raw_publisher
+            db=db,
+            raw_process_name=item.raw_display_name,
+            binary_hash=item.binary_hash,
+            publisher=item.raw_publisher,
+            install_path=item.install_path,
+            reported_version=item.raw_version,
         )
         cat_id = match_res.get("matched_catalog_software_id")
         conf = match_res.get("confidence", 0.0)
@@ -83,7 +96,6 @@ async def analyze_eula(payload: EulaAnalyzeRequest, db: AsyncSession = Depends(g
             lic_res = await db.execute(select(License).where(License.id == lid))
             lic = lic_res.scalar_one_or_none()
             if lic:
-                # Store serialized analysis
                 serializable = {
                     "commercial_use_allowed": analysis["commercial_use_allowed"],
                     "risk_level": analysis["risk_level"],

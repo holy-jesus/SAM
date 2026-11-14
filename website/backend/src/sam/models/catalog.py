@@ -38,7 +38,7 @@ class SoftwareCatalog(Base):
     max_installations: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0 = unlimited
     responsible_person: Mapped[str] = mapped_column(String(255), default="Администратор SAM", nullable=False)
     approval_status: Mapped[str] = mapped_column(String(50), default="approved", nullable=False)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(384), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

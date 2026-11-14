@@ -21,7 +21,7 @@ import {
 const categories = ref<SoftwareCategory[]>([]);
 const loading = ref(false);
 
-// Modals
+// Модальные окна
 const isModalOpen = ref(false);
 const editingCategory = ref<SoftwareCategory | null>(null);
 
@@ -91,7 +91,7 @@ async function deleteCategory(id: number) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Категории программного обеспечения</h1>
@@ -106,7 +106,7 @@ async function deleteCategory(id: number) {
       </Button>
     </div>
 
-    <!-- Categories Grid -->
+    <!-- Сетка категорий -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <Card
         v-for="cat in categories"
@@ -167,7 +167,7 @@ async function deleteCategory(id: number) {
       </Card>
     </div>
 
-    <!-- Create/Edit Modal -->
+    <!-- Модальное окно создания / редактирования -->
     <Modal
       v-model="isModalOpen"
       :title="editingCategory ? 'Редактирование категории' : 'Новая категория софта'"

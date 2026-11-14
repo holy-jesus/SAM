@@ -17,9 +17,10 @@ import {
   Layers,
 } from 'lucide-vue-next';
 
+// Реактивное состояние реестра
 const registryItems = ref<RuSoftwareRegistryItem[]>([]);
-const lastUpdated = ref('2026-11-14T04:00:00Z');
-const totalRecords = ref(22480);
+const lastUpdated = ref<string | null>(null);
+const totalRecords = ref<number | null>(null);
 const loading = ref(false);
 const syncing = ref(false);
 const syncSuccess = ref(false);
@@ -29,6 +30,7 @@ onMounted(async () => {
   await Promise.all([loadRegistry(), loadStatus()]);
 });
 
+// Загрузка записей реестра
 async function loadRegistry() {
   loading.value = true;
   try {
@@ -38,18 +40,25 @@ async function loadRegistry() {
   }
 }
 
+// Загрузка метаданных статуса реестра из бэкенда
 async function loadStatus() {
-  const status = await api.getRegistryStatus();
-  lastUpdated.value = status.last_updated_at;
-  totalRecords.value = status.total_records;
+  try {
+    const status = await api.getRegistryStatus();
+    lastUpdated.value = status.last_updated_at;
+    totalRecords.value = status.total_records;
+  } catch (e) {
+    totalRecords.value = registryItems.value.length;
+  }
 }
 
+// Ручной запуск синхронизации с Минцифры РФ
 async function runSync() {
   syncing.value = true;
   syncSuccess.value = false;
   try {
     const res = await api.syncRegistry();
     lastUpdated.value = new Date().toISOString();
+    totalRecords.value = res.updated_count;
     syncSuccess.value = true;
     await loadRegistry();
     setTimeout(() => {
@@ -60,6 +69,7 @@ async function runSync() {
   }
 }
 
+// Фильтрация записей реестра по строке поиска
 const filteredItems = computed(() => {
   if (!searchQuery.value.trim()) return registryItems.value;
   const q = searchQuery.value.toLowerCase();
@@ -75,7 +85,7 @@ const filteredItems = computed(() => {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <div class="flex items-center gap-2">
@@ -112,7 +122,7 @@ const filteredItems = computed(() => {
       </div>
     </div>
 
-    <!-- Sync Status Banner -->
+    <!-- Информационная панель статуса базы реестра -->
     <div class="bg-white p-4.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
@@ -121,7 +131,7 @@ const filteredItems = computed(() => {
         <div>
           <div class="text-xs text-slate-500 font-medium">Статус базы данных реестра:</div>
           <div class="text-sm font-bold text-slate-900 flex items-center gap-2 mt-0.5">
-            <span>Всего записей в базе: {{ totalRecords.toLocaleString('ru-RU') }}</span>
+            <span>Всего записей в базе: {{ totalRecords !== null ? totalRecords.toLocaleString('ru-RU') : 'Синхронизация...' }}</span>
             <span class="text-slate-300">•</span>
             <span class="text-emerald-600 font-semibold flex items-center gap-1 text-xs">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -135,18 +145,18 @@ const filteredItems = computed(() => {
         <Calendar class="w-4 h-4 text-slate-400" />
         <span>Последнее обновление:</span>
         <span class="font-semibold text-slate-800 font-mono">
-          {{ new Date(lastUpdated).toLocaleString('ru-RU') }}
+          {{ lastUpdated ? new Date(lastUpdated).toLocaleString('ru-RU') : 'Не синхронизировано' }}
         </span>
       </div>
     </div>
 
-    <!-- Sync Success Alert -->
+    <!-- Уведомление об успешной синхронизации -->
     <div v-if="syncSuccess" class="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-lg flex items-center gap-2">
       <CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0" />
       <span>Реестр отечественного ПО успешно синхронизирован с Минцифры РФ! База обновлена.</span>
     </div>
 
-    <!-- Search Input -->
+    <!-- Поле поиска по реестру -->
     <div class="bg-white p-3 rounded-xl border border-slate-200 w-full sm:w-96">
       <Input
         v-model="searchQuery"
@@ -154,7 +164,7 @@ const filteredItems = computed(() => {
       />
     </div>
 
-    <!-- Registry Table -->
+    <!-- Таблица записей реестра -->
     <Card noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">

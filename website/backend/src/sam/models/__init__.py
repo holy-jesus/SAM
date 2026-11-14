@@ -9,6 +9,7 @@ from sam.models.license import License
 from sam.models.installed_software import InstalledSoftware
 from sam.models.compliance import ComplianceAlert
 from sam.models.import_history import ImportHistory
+from sam.models.process_signature import ProcessSignature
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "InstalledSoftware",
     "ComplianceAlert",
     "ImportHistory",
+    "ProcessSignature",
 ]

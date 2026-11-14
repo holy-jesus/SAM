@@ -75,6 +75,11 @@ export interface RuSoftwareRegistryItem {
   updated_at?: string;
 }
 
+export interface RegistryStatus {
+  last_updated_at: string;
+  total_records: number;
+}
+
 export type LicenseType = 'Commercial' | 'Open Source' | 'Freeware' | 'Trial' | 'Платный' | 'Бесплатный' | 'Условно бесплатный';
 
 export interface SoftwareCatalogItem {
@@ -89,7 +94,7 @@ export interface SoftwareCatalogItem {
   category_id?: number | null;
   category?: SoftwareCategory;
   license_type: LicenseType;
-  max_installations: number; // 0 = unlimited
+  max_installations: number; // 0 = без ограничений
   active_installations_count?: number;
   responsible_person?: string;
   approval_status?: 'approved' | 'review' | 'rejected';
@@ -168,7 +173,7 @@ export interface ComplianceBalanceItem {
   license_type: string;
   purchased_count: number;
   installed_count: number;
-  balance: number; // purchased - installed
+  balance: number; // куплено минус установлено (отрицательное число = дефицит)
   unit_cost: number;
   total_penalty_risk_rub: number;
   status: 'normal' | 'critical_overuse' | 'underutilized';

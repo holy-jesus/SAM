@@ -32,7 +32,7 @@ const loading = ref(false);
 const searchQuery = ref('');
 const categoryFilter = ref<string>('all');
 
-// Modals
+// Модальные окна
 const isCategoryModalOpen = ref(false);
 const isAddModalOpen = ref(false);
 const selectedItem = ref<InstalledSoftware | null>(null);
@@ -43,7 +43,7 @@ const addForm = ref({
   catalog_software_id: '',
   raw_display_name: '',
   raw_publisher: '',
-  raw_version: '1.0',
+  raw_version: '',
 });
 
 onMounted(async () => {
@@ -107,9 +107,20 @@ function openAdd() {
     catalog_software_id: catalog.value[0]?.id || '',
     raw_display_name: catalog.value[0]?.name || '',
     raw_publisher: catalog.value[0]?.vendor || '',
-    raw_version: '1.0',
+    raw_version: '',
   };
   isAddModalOpen.value = true;
+}
+
+function openSmartMatchForUnverified() {
+  const unverified = softwareList.value.find(s => !s.catalog_software_name);
+  if (unverified) {
+    samStore.triggerSmartMatch(unverified.raw_display_name);
+  } else if (softwareList.value.length > 0) {
+    samStore.triggerSmartMatch(softwareList.value[0].raw_display_name);
+  } else {
+    samStore.triggerSmartMatch('');
+  }
 }
 
 async function saveAdd() {
@@ -129,7 +140,7 @@ async function deleteInstalled(item: InstalledSoftware) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Установленное ПО на предприятии</h1>
@@ -139,7 +150,7 @@ async function deleteInstalled(item: InstalledSoftware) {
       </div>
 
       <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" @click="samStore.triggerSmartMatch('studio_visual_2022_setup_x64.exe')">
+        <Button variant="outline" size="sm" @click="openSmartMatchForUnverified">
           <Wand2 class="w-3.5 h-3.5 mr-1 text-blue-600" />
           Умный мэтчинг ИИ
         </Button>
@@ -150,7 +161,7 @@ async function deleteInstalled(item: InstalledSoftware) {
       </div>
     </div>
 
-    <!-- Filters Bar -->
+    <!-- Панель фильтров -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
       <div class="w-full sm:w-80">
         <Input
@@ -171,7 +182,7 @@ async function deleteInstalled(item: InstalledSoftware) {
       </div>
     </div>
 
-    <!-- Software Table -->
+    <!-- Таблица установленного ПО -->
     <Card noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -268,7 +279,7 @@ async function deleteInstalled(item: InstalledSoftware) {
       </div>
     </Card>
 
-    <!-- Change Category Modal -->
+    <!-- Модальное окно смены категории ПО -->
     <Modal
       v-model="isCategoryModalOpen"
       title="Назначить категорию ПО"
@@ -288,7 +299,7 @@ async function deleteInstalled(item: InstalledSoftware) {
       </div>
     </Modal>
 
-    <!-- Add Manual Install Modal -->
+    <!-- Модальное окно ручного добавления софта -->
     <Modal
       v-model="isAddModalOpen"
       title="Добавить факт установки ПО на хост"

@@ -16,8 +16,8 @@ const messages = ref<AIChatMessage[]>([
   {
     id: 'm1',
     sender: 'assistant',
-    text: 'Здравствуйте! Я ИИ-ассистент ИТ-директора SAM. Вы можете задать мне любые вопросы по лицензиям, балансу, хостам или комплаенсу на естественном языке.',
-    timestamp: '12:00',
+    text: 'Здравствуйте! Я ИИ-ассистент Сэм. Вы можете задать мне любые вопросы по лицензиям, балансу, хостам или комплаенсу на естественном языке.',
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   },
 ]);
 
@@ -65,7 +65,7 @@ async function sendQuery(text?: string) {
     v-if="samStore.aiChatWidgetOpen"
     class="fixed bottom-6 right-6 z-50 w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col h-[580px] overflow-hidden transition-all duration-300"
   >
-    <!-- Header -->
+    <!-- Шапка чат-виджета -->
     <div class="px-4 py-3 bg-gradient-to-r from-blue-700 to-indigo-700 text-white flex items-center justify-between shadow-xs">
       <div class="flex items-center gap-2.5">
         <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-xs">
@@ -88,7 +88,7 @@ async function sendQuery(text?: string) {
       </button>
     </div>
 
-    <!-- Quick Prompts Chips -->
+    <!-- Кнопки быстрых запросов -->
     <div class="p-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
       <button
         v-for="p in quickPrompts"
@@ -101,14 +101,14 @@ async function sendQuery(text?: string) {
       </button>
     </div>
 
-    <!-- Messages Container -->
+    <!-- Контейнер сообщений диалога -->
     <div ref="messagesContainer" class="flex-1 p-4 overflow-y-auto space-y-3.5 text-xs bg-slate-50/30">
       <div
         v-for="m in messages"
         :key="m.id"
         :class="['flex flex-col', m.sender === 'user' ? 'items-end' : 'items-start']"
       >
-        <!-- Chat Bubble -->
+        <!-- Сообщение в чате -->
         <div
           :class="[
             'p-3.5 rounded-2xl max-w-[90%] shadow-2xs leading-relaxed',
@@ -119,7 +119,7 @@ async function sendQuery(text?: string) {
         >
           <div class="whitespace-pre-line">{{ m.text }}</div>
 
-          <!-- SQL Transparency Box -->
+          <!-- Блок сгенерированного SQL-запроса -->
           <div v-if="m.sql_executed" class="mt-2.5 pt-2 border-t border-slate-100 font-mono text-[10px]">
             <div class="flex items-center gap-1 text-slate-400 font-sans mb-1 font-semibold uppercase tracking-wider">
               <Database class="w-3 h-3 text-indigo-500" /> Выполненный SQL-запрос:
@@ -127,7 +127,7 @@ async function sendQuery(text?: string) {
             <pre class="bg-slate-900 text-emerald-400 p-2 rounded-md overflow-x-auto">{{ m.sql_executed }}</pre>
           </div>
 
-          <!-- Data Table if provided -->
+          <!-- Таблица с извлечёнными данными -->
           <div v-if="m.data && m.data.length" class="mt-2 pt-2 border-t border-slate-100 overflow-x-auto">
             <table class="w-full text-left border-collapse text-[11px]">
               <thead>
@@ -156,7 +156,7 @@ async function sendQuery(text?: string) {
       </div>
     </div>
 
-    <!-- Input Footer -->
+    <!-- Поле ввода вопроса -->
     <div class="p-3 bg-white border-t border-slate-200 flex gap-2 items-center">
       <input
         v-model="queryText"

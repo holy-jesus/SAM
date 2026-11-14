@@ -28,7 +28,7 @@ const loading = ref(false);
 const searchQuery = ref('');
 const statusFilter = ref('all');
 
-// Modals
+// Модальные окна
 const isCreateModalOpen = ref(false);
 const isViewModalOpen = ref(false);
 const editingEmployee = ref<Partial<Employee> | null>(null);
@@ -37,8 +37,8 @@ const selectedEmployeeDetails = ref<(Employee & { computers: Computer[] }) | nul
 const form = ref({
   full_name: '',
   email: '',
-  department: 'Отдел разработки',
-  position: 'Разработчик',
+  department: '',
+  position: '',
   status: 'active' as EmployeeStatus,
 });
 
@@ -72,8 +72,8 @@ function openCreate() {
   form.value = {
     full_name: '',
     email: '',
-    department: 'Отдел разработки',
-    position: 'Специалист',
+    department: '',
+    position: '',
     status: 'active',
   };
   isCreateModalOpen.value = true;
@@ -118,7 +118,7 @@ async function viewEmployee(emp: Employee) {
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
+    <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Сотрудники компании</h1>
@@ -133,7 +133,7 @@ async function viewEmployee(emp: Employee) {
       </Button>
     </div>
 
-    <!-- Filters Bar -->
+    <!-- Панель фильтров -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
       <div class="w-full sm:w-80">
         <Input
@@ -156,7 +156,7 @@ async function viewEmployee(emp: Employee) {
       </div>
     </div>
 
-    <!-- Employees Table -->
+    <!-- Таблица сотрудников -->
     <Card noPadding>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs border-collapse">
@@ -196,9 +196,9 @@ async function viewEmployee(emp: Employee) {
                   @click="viewEmployee(emp)"
                 >
                   <Monitor class="w-3.5 h-3.5" />
-                  <span>{{ emp.computers_count ?? 1 }} ПК</span>
+                  <span>{{ emp.computers_count ?? (emp.computers?.length ?? 0) }} ПК</span>
                 </button>
-                <div v-if="emp.status === 'dismissed' && (emp.computers_count ?? 1) > 0" class="mt-1">
+                <div v-if="emp.status === 'dismissed' && (emp.computers_count ?? (emp.computers?.length ?? 0)) > 0" class="mt-1">
                   <Badge variant="warning" size="sm" class="text-[10px]">Риск: Зомби-софт</Badge>
                 </div>
               </td>
@@ -244,7 +244,7 @@ async function viewEmployee(emp: Employee) {
       </div>
     </Card>
 
-    <!-- Create/Edit Modal -->
+    <!-- Модальное окно создания / редактирования -->
     <Modal
       v-model="isCreateModalOpen"
       :title="editingEmployee ? 'Редактирование сотрудника' : 'Новый сотрудник'"
@@ -289,7 +289,7 @@ async function viewEmployee(emp: Employee) {
       </form>
     </Modal>
 
-    <!-- View Employee Details & Computers Modal -->
+    <!-- Модальное окно детальной информации о сотруднике и ПК -->
     <Modal
       v-model="isViewModalOpen"
       :title="selectedEmployeeDetails?.full_name || 'Карточка сотрудника'"
@@ -297,7 +297,7 @@ async function viewEmployee(emp: Employee) {
       maxWidth="2xl"
     >
       <div v-if="selectedEmployeeDetails" class="space-y-5">
-        <!-- Profile Header -->
+        <!-- Профиль сотрудника -->
         <div class="flex items-start justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
           <div>
             <h4 class="font-bold text-slate-900 text-base">{{ selectedEmployeeDetails.full_name }}</h4>
@@ -314,7 +314,7 @@ async function viewEmployee(emp: Employee) {
           </Badge>
         </div>
 
-        <!-- Warning if dismissed -->
+        <!-- Предупреждение об увольнении -->
         <div
           v-if="selectedEmployeeDetails.status === 'dismissed'"
           class="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg flex items-start gap-2"
@@ -325,7 +325,7 @@ async function viewEmployee(emp: Employee) {
           </div>
         </div>
 
-        <!-- Computers List -->
+        <!-- Список рабочих станций -->
         <div>
           <h5 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
             Привязанные рабочие станции ({{ selectedEmployeeDetails.computers?.length || 0 }})

@@ -95,8 +95,13 @@ PYTHONPATH=src uvicorn sam.main:app --host 0.0.0.0 --port 8000 --reload
 - `POST /api/v1/connector/import/upload` — ручная загрузка файлов дампов (XLSX, CSV, JSON)
 - `GET /api/v1/connector/import/history` — журнал выполненных импортов
 
-### 7. ИИ-модули
-- `POST /api/v1/ai/match-software` — нормализация "грязного" имени процесса в эталонное ПО
-- `POST /api/v1/ai/batch-normalize` — фоновая нормализация всех нераспознанных записей
+### 7. ИИ-модули и Smart Matching
+- `POST /api/v1/matcher/match-software` и `POST /api/v1/ai/match-software` — умный 4-этапный конвейер нормализации процесса:
+  1. **Хэш файла**: проверка контрольной суммы бинарника (SHA-256) в базе известных сигнатур и ранее верифицированных записей (`confidence: 1.0`).
+  2. **Единый реестр Российского ПО**: поиск среди ~22 000 отечественных программ по названию и альтернативным синонимам (`ru_software_registry`).
+  3. **Wikimedia Semantic Search API**: семантический поиск по Wikipedia API с извлечением канонического названия продукта и вендора.
+  4. **Нейросеть (OpenAI SDK)**: интеллектуальный анализ имени исполняемого файла с помощью модели (настраивается через `OPENAI_API_KEY`, `OPENAI_BASE_URL` и `OPENAI_MODEL`).
+  5. **Локальные эвристики и алиасы**: фолбэк по нормализованным токенам и словарю системных процессов.
+- `POST /api/v1/matcher/batch-normalize` и `POST /api/v1/ai/batch-normalize` — фоновая пакетная нормализация нераспознанных записей
 - `POST /api/v1/ai/analyze-eula` — анализ текста лицензионного соглашения на коммерческие риски
 - `POST /api/v1/ai/chat` — Text-to-SQL чат-ассистент ИТ-директора с естественным языком
