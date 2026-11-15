@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Dict
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,24 @@ from sam.services.substitution_service import (
 )
 
 router = APIRouter(prefix="/connector", tags=["Agent Connector & Dump Import"])
+
+# Очередь исходящих команд от сервера к агенту (Command & Control)
+_pending_agent_commands: Dict[str, List[str]] = {}
+
+
+def enqueue_agent_command(serial_number: str, command: str) -> None:
+    """Ставит команду (например, 'scan', 'report') в очередь для агента."""
+    sn = serial_number.strip()
+    if sn not in _pending_agent_commands:
+        _pending_agent_commands[sn] = []
+    _pending_agent_commands[sn].append(command)
+
+
+def pop_agent_commands(serial_number: str) -> List[str]:
+    """Извлекает и удаляет накопленные команды для агента при очередном heartbeat."""
+    sn = serial_number.strip()
+    return _pending_agent_commands.pop(sn, [])
+
 
 
 @router.post("/agent/register", response_model=AgentAuthResponse)
@@ -281,12 +299,15 @@ async def receive_agent_heartbeat(
         else:
             msg = "Заявка ожидает подтверждения администратором."
 
+        cmds = pop_agent_commands(comp.serial_number)
+
         return AgentHeartbeatResponse(
             status="ok",
             recognized=True,
             enrollment_status=comp.enrollment_status,
             can_send_data=can_send,
             message=msg,
+            commands=cmds,
         )
 
     return AgentHeartbeatResponse(
@@ -295,6 +316,7 @@ async def receive_agent_heartbeat(
         enrollment_status="unregistered",
         can_send_data=False,
         message="ПК не зарегистрирован на сервере",
+        commands=[],
     )
 
 

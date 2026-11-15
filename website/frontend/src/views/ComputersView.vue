@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { api } from '@/services/api';
-import { Computer, Employee, InstalledSoftware, SoftwareCatalogItem } from '@/types';
+import { Computer, Employee, InstalledSoftware, SoftwareCatalogItem, ComputerEnrollmentStats, ComputerVulnerabilitiesResponse } from '@/types';
 import Card from '@/components/ui/Card.vue';
 import Button from '@/components/ui/Button.vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -26,8 +26,15 @@ import {
   Bug,
   Flame,
   ShieldAlert,
+  ShieldCheck,
+  Shield,
+  Ban,
+  Check,
+  Radio,
+  RotateCcw,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-vue-next';
-import { ComputerVulnerabilitiesResponse } from '@/types';
 
 const computers = ref<Computer[]>([]);
 const employees = ref<Employee[]>([]);
@@ -35,6 +42,9 @@ const catalog = ref<SoftwareCatalogItem[]>([]);
 const loading = ref(false);
 const searchQuery = ref('');
 const onlineFilter = ref<string>('all');
+const enrollmentFilter = ref<string>('all');
+const enrollmentStats = ref<ComputerEnrollmentStats>({ total: 0, pending: 0, approved: 0, blocked: 0 });
+const actionNotification = ref<string | null>(null);
 
 // Модальные окна
 const isCreateModalOpen = ref(false);
@@ -45,8 +55,20 @@ const selectedComputer = ref<Computer | null>(null);
 const detailsTab = ref<'software' | 'vulnerabilities'>('software');
 const vulnReport = ref<ComputerVulnerabilitiesResponse | null>(null);
 const loadingVulns = ref(false);
+const scanning = ref(false);
 
-const compForm = ref({
+const compForm = ref<{
+  hostname: string;
+  serial_number: string;
+  ip_address: string;
+  mac_address: string;
+  os_name: string;
+  os_version: string;
+  cpu_info: string;
+  ram_mb: number;
+  employee_id: string | null;
+  enrollment_status: 'pending' | 'approved' | 'blocked';
+}>({
   hostname: '',
   serial_number: '',
   ip_address: '',
@@ -55,7 +77,8 @@ const compForm = ref({
   os_version: '',
   cpu_info: '',
   ram_mb: 0,
-  employee_id: '' as string | null,
+  employee_id: null,
+  enrollment_status: 'approved',
 });
 
 const softForm = ref({
@@ -66,8 +89,12 @@ const softForm = ref({
 });
 
 onMounted(async () => {
-  await Promise.all([loadComputers(), loadEmployees(), loadCatalog()]);
+  await Promise.all([loadComputers(), loadEmployees(), loadCatalog(), loadEnrollmentStats()]);
 });
+
+async function refreshAll() {
+  await Promise.all([loadComputers(), loadEnrollmentStats()]);
+}
 
 async function loadComputers() {
   loading.value = true;
@@ -75,6 +102,17 @@ async function loadComputers() {
     computers.value = await api.getComputers();
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadEnrollmentStats() {
+  try {
+    enrollmentStats.value = await api.getComputerEnrollmentStats();
+  } catch (e) {
+    const total = computers.value.length;
+    const pending = computers.value.filter((c) => c.enrollment_status === 'pending').length;
+    const blocked = computers.value.filter((c) => c.enrollment_status === 'blocked').length;
+    enrollmentStats.value = { total, pending, approved: total - pending - blocked, blocked };
   }
 }
 
@@ -100,9 +138,67 @@ const filteredComputers = computed(() => {
       (onlineFilter.value === 'online' && comp.is_online) ||
       (onlineFilter.value === 'offline' && !comp.is_online);
 
-    return matchSearch && matchOnline;
+    const statusVal = comp.enrollment_status || 'approved';
+    const matchEnrollment =
+      enrollmentFilter.value === 'all' || statusVal === enrollmentFilter.value;
+
+    return matchSearch && matchOnline && matchEnrollment;
   });
 });
+
+function showToast(msg: string) {
+  actionNotification.value = msg;
+  setTimeout(() => {
+    actionNotification.value = null;
+  }, 4000);
+}
+
+async function handleApprove(comp: Computer) {
+  try {
+    const updated = await api.approveComputer(comp.id);
+    comp.enrollment_status = 'approved';
+    showToast(`Рабочая станция ${comp.hostname} успешно одобрена! Приём данных разрешён.`);
+    await Promise.all([loadComputers(), loadEnrollmentStats()]);
+  } catch (err: any) {
+    showToast(`Ошибка одобрения ПК: ${err.message || 'Ошибка сети'}`);
+  }
+}
+
+async function handleBlock(comp: Computer) {
+  if (confirm(`Заблокировать ПК ${comp.hostname}? Данные от его агента будут отклоняться сервером.`)) {
+    try {
+      await api.blockComputer(comp.id);
+      comp.enrollment_status = 'blocked';
+      showToast(`ПК ${comp.hostname} заблокирован (в чёрном списке).`);
+      await Promise.all([loadComputers(), loadEnrollmentStats()]);
+    } catch (err: any) {
+      showToast(`Ошибка блокировки: ${err.message || 'Ошибка сети'}`);
+    }
+  }
+}
+
+async function handleResetPending(comp: Computer) {
+  try {
+    await api.resetPendingComputer(comp.id);
+    comp.enrollment_status = 'pending';
+    showToast(`ПК ${comp.hostname} возвращён в статус ожидания заявки (Pending).`);
+    await Promise.all([loadComputers(), loadEnrollmentStats()]);
+  } catch (err: any) {
+    showToast(`Ошибка: ${err.message}`);
+  }
+}
+
+async function handleTriggerScan(comp: Computer, thorough = false) {
+  scanning.value = true;
+  try {
+    const res = await api.triggerComputerScan(comp.id, thorough);
+    showToast(res.message || `Команда сканирования передана агенту ${comp.hostname}`);
+  } catch (err: any) {
+    showToast(`Ошибка отправки команды: ${err.message}`);
+  } finally {
+    scanning.value = false;
+  }
+}
 
 function openCreate() {
   editingComputer.value = null;
@@ -116,6 +212,7 @@ function openCreate() {
     cpu_info: '',
     ram_mb: 0,
     employee_id: employees.value[0]?.id || null,
+    enrollment_status: 'approved',
   };
   isCreateModalOpen.value = true;
 }
@@ -132,6 +229,7 @@ function openEdit(comp: Computer) {
     cpu_info: comp.cpu_info || '',
     ram_mb: comp.ram_mb ?? 0,
     employee_id: comp.employee_id || null,
+    enrollment_status: comp.enrollment_status || 'approved',
   };
   isCreateModalOpen.value = true;
 }
@@ -205,19 +303,127 @@ async function removeSoftware(instId: string) {
 
 <template>
   <div class="space-y-6">
+    <!-- Уведомление о действиях -->
+    <div
+      v-if="actionNotification"
+      class="bg-blue-50 border border-blue-200 text-blue-900 text-xs px-4 py-2.5 rounded-xl flex items-center justify-between shadow-sm animate-fade-in"
+    >
+      <div class="flex items-center gap-2">
+        <AlertCircle class="w-4 h-4 text-blue-600 shrink-0" />
+        <span class="font-medium">{{ actionNotification }}</span>
+      </div>
+      <button
+        type="button"
+        @click="actionNotification = null"
+        class="text-blue-500 hover:text-blue-800 text-xs font-bold cursor-pointer"
+      >
+        ✕
+      </button>
+    </div>
+
     <!-- Заголовок страницы -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Компьютеры и рабочие станции</h1>
         <p class="text-xs text-slate-500 mt-1">
-          Реестр оборудования, синхронизация с Go-агентом и привязка к сотрудникам
+          Реестр оборудования, авторизация агентов (Enrollment), удалённый запуск аудита и привязка к персоналу
         </p>
       </div>
 
-      <Button variant="primary" size="sm" @click="openCreate">
-        <Plus class="w-4 h-4 mr-1.5" />
-        Добавить ПК вручную
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button variant="outline" size="sm" :disabled="loading" @click="refreshAll">
+          <RefreshCw class="w-3.5 h-3.5 mr-1" />
+          Обновить
+        </Button>
+        <Button variant="primary" size="sm" @click="openCreate">
+          <Plus class="w-4 h-4 mr-1.5" />
+          Добавить ПК вручную
+        </Button>
+      </div>
+    </div>
+
+    <!-- Метрики регистрации оборудования (Enrollment) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card
+        class="hover:border-slate-300 transition-all cursor-pointer"
+        :class="enrollmentFilter === 'all' ? 'ring-1 ring-slate-300' : ''"
+        @click="enrollmentFilter = 'all'"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs font-medium text-slate-500 block">Всего рабочих станций</span>
+            <div class="text-2xl font-bold text-slate-900 mt-1 font-mono">
+              {{ enrollmentStats.total }}
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">Оборудование в базе SAM</p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+            <Monitor class="w-5 h-5" />
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        class="transition-all cursor-pointer"
+        :class="enrollmentStats.pending > 0 ? 'border-amber-300 bg-amber-50/40 ring-1 ring-amber-300' : 'hover:border-slate-300'"
+        @click="enrollmentFilter = enrollmentFilter === 'pending' ? 'all' : 'pending'"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs font-medium text-amber-800 block flex items-center gap-1">
+              Заявки на подключение
+              <span v-if="enrollmentStats.pending > 0" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+            </span>
+            <div class="text-2xl font-bold text-amber-900 mt-1 font-mono">
+              {{ enrollmentStats.pending }}
+            </div>
+            <p class="text-[11px] text-amber-700 mt-1">
+              {{ enrollmentStats.pending > 0 ? 'Требуют авторизации админа' : 'Нет новых заявок' }}
+            </p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+            <AlertCircle class="w-5 h-5" />
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        class="hover:border-emerald-300 transition-all cursor-pointer"
+        :class="enrollmentFilter === 'approved' ? 'border-emerald-300 bg-emerald-50/20 ring-1 ring-emerald-300' : ''"
+        @click="enrollmentFilter = enrollmentFilter === 'approved' ? 'all' : 'approved'"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs font-medium text-emerald-700 block">Авторизовано (Approved)</span>
+            <div class="text-2xl font-bold text-emerald-900 mt-1 font-mono">
+              {{ enrollmentStats.approved }}
+            </div>
+            <p class="text-[11px] text-emerald-600 mt-1">Данные агентов принимаются</p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+            <ShieldCheck class="w-5 h-5" />
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        class="transition-all cursor-pointer"
+        :class="enrollmentStats.blocked > 0 ? 'border-rose-300 bg-rose-50/30 ring-1 ring-rose-300' : 'hover:border-slate-300'"
+        @click="enrollmentFilter = enrollmentFilter === 'blocked' ? 'all' : 'blocked'"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs font-medium text-rose-700 block">Заблокировано (Blocked)</span>
+            <div class="text-2xl font-bold text-rose-900 mt-1 font-mono">
+              {{ enrollmentStats.blocked }}
+            </div>
+            <p class="text-[11px] text-rose-600 mt-1">Отклоняются сервером SAM</p>
+          </div>
+          <div class="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700">
+            <Ban class="w-5 h-5" />
+          </div>
+        </div>
+      </Card>
     </div>
 
     <!-- Панель фильтров -->
@@ -230,6 +436,16 @@ async function removeSoftware(instId: string) {
       </div>
 
       <div class="flex items-center gap-2">
+        <Select
+          v-model="enrollmentFilter"
+          placeholder="Статус допуска"
+          :options="[
+            { label: 'Все допуски', value: 'all' },
+            { label: 'Заявки (Pending)', value: 'pending' },
+            { label: 'Авторизован (Approved)', value: 'approved' },
+            { label: 'Заблокирован (Blocked)', value: 'blocked' },
+          ]"
+        />
         <Select
           v-model="onlineFilter"
           placeholder="Статус сети"
@@ -253,6 +469,7 @@ async function removeSoftware(instId: string) {
               <th class="py-3 px-4">IP и Сеть</th>
               <th class="py-3 px-4">ОС и Железо</th>
               <th class="py-3 px-4">Закреплённый сотрудник</th>
+              <th class="py-3 px-4 text-center">Допуск агента</th>
               <th class="py-3 px-4 text-center">Статус сети</th>
               <th class="py-3 px-4 text-right">Действия</th>
             </tr>
@@ -289,6 +506,32 @@ async function removeSoftware(instId: string) {
               </td>
               <td class="py-3 px-4 text-center">
                 <span
+                  v-if="comp.enrollment_status === 'pending'"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200"
+                  title="Ожидает подтверждения администратора SAM"
+                >
+                  <AlertCircle class="w-3 h-3 text-amber-600" />
+                  Заявка
+                </span>
+                <span
+                  v-else-if="comp.enrollment_status === 'blocked'"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-800 border border-rose-200"
+                  title="Устройство заблокировано в SAM (чёрный список)"
+                >
+                  <Ban class="w-3 h-3 text-rose-600" />
+                  Заблокирован
+                </span>
+                <span
+                  v-else
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200"
+                  title="Авторизованная рабочая станция"
+                >
+                  <ShieldCheck class="w-3 h-3 text-emerald-600" />
+                  Одобрен
+                </span>
+              </td>
+              <td class="py-3 px-4 text-center">
+                <span
                   :class="[
                     'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border',
                     comp.is_online
@@ -302,6 +545,39 @@ async function removeSoftware(instId: string) {
               </td>
               <td class="py-3 px-4 text-right">
                 <div class="flex items-center justify-end gap-1">
+                  <!-- Кнопка удалённого сканирования через C2 / агент -->
+                  <button
+                    type="button"
+                    :disabled="scanning"
+                    title="Запустить удалённое сканирование ПО (Agent Scan)"
+                    class="p-1.5 rounded-md hover:bg-emerald-50 text-emerald-600 transition cursor-pointer disabled:opacity-50"
+                    @click="handleTriggerScan(comp)"
+                  >
+                    <Radio class="w-4 h-4" />
+                  </button>
+
+                  <!-- Одобрить (если Pending или Blocked) -->
+                  <button
+                    v-if="comp.enrollment_status === 'pending' || comp.enrollment_status === 'blocked'"
+                    type="button"
+                    title="Одобрить рабочую станцию (Авторизовать приём данных)"
+                    class="p-1.5 rounded-md hover:bg-emerald-50 text-emerald-700 transition cursor-pointer"
+                    @click="handleApprove(comp)"
+                  >
+                    <Check class="w-4 h-4" />
+                  </button>
+
+                  <!-- Заблокировать (если Approved или Pending) -->
+                  <button
+                    v-if="comp.enrollment_status !== 'blocked'"
+                    type="button"
+                    title="Заблокировать рабочую станцию (Внести в чёрный список)"
+                    class="p-1.5 rounded-md hover:bg-rose-50 text-rose-600 transition cursor-pointer"
+                    @click="handleBlock(comp)"
+                  >
+                    <Ban class="w-4 h-4" />
+                  </button>
+
                   <button
                     type="button"
                     title="Аудит уязвимостей БДУ ФСТЭК"
@@ -372,6 +648,15 @@ async function removeSoftware(instId: string) {
           placeholder="Windows 11 Pro"
         />
         <Select
+          v-model="compForm.enrollment_status"
+          label="Статус допуска (Enrollment)"
+          :options="[
+            { label: 'Одобрен (Approved)', value: 'approved' },
+            { label: 'Ожидает одобрения (Pending)', value: 'pending' },
+            { label: 'Заблокирован (Blocked)', value: 'blocked' },
+          ]"
+        />
+        <Select
           v-model="compForm.employee_id"
           label="Привязать к сотруднику"
           placeholder="Выберите сотрудника..."
@@ -394,7 +679,7 @@ async function removeSoftware(instId: string) {
     >
       <div v-if="selectedComputer" class="space-y-5">
         <!-- Характеристики оборудования -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
           <div>
             <span class="text-slate-400 block text-[10px] uppercase font-bold">ОС</span>
             <span class="font-semibold text-slate-800">{{ selectedComputer.os_name }} {{ selectedComputer.os_version }}</span>
@@ -408,11 +693,81 @@ async function removeSoftware(instId: string) {
             <span class="font-semibold text-slate-800">{{ selectedComputer.employee?.full_name || 'Не закреплен' }}</span>
           </div>
           <div>
+            <span class="text-slate-400 block text-[10px] uppercase font-bold">Допуск агента</span>
+            <span
+              :class="[
+                'font-semibold inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full mt-0.5',
+                selectedComputer.enrollment_status === 'pending'
+                  ? 'bg-amber-100 text-amber-800'
+                  : selectedComputer.enrollment_status === 'blocked'
+                  ? 'bg-rose-100 text-rose-800'
+                  : 'bg-emerald-100 text-emerald-800',
+              ]"
+            >
+              {{ selectedComputer.enrollment_status === 'pending' ? 'Заявка (Pending)' : selectedComputer.enrollment_status === 'blocked' ? 'Заблокирован' : 'Одобрен' }}
+            </span>
+          </div>
+          <div>
             <span class="text-slate-400 block text-[10px] uppercase font-bold">Статус сети</span>
-            <span :class="selectedComputer.is_online ? 'text-emerald-600' : 'text-slate-500'" class="font-semibold flex items-center gap-1">
+            <span :class="selectedComputer.is_online ? 'text-emerald-600' : 'text-slate-500'" class="font-semibold flex items-center gap-1 mt-0.5">
               <span :class="selectedComputer.is_online ? 'bg-emerald-500' : 'bg-slate-400'" class="w-2 h-2 rounded-full"></span>
               {{ selectedComputer.is_online ? 'Онлайн' : 'Офлайн' }}
             </span>
+          </div>
+        </div>
+
+        <!-- Панель управления агентом и допуском -->
+        <div class="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-semibold text-slate-700">Управление допуском:</span>
+            <Button
+              v-if="selectedComputer.enrollment_status !== 'approved'"
+              variant="primary"
+              size="sm"
+              @click="handleApprove(selectedComputer)"
+            >
+              <Check class="w-3.5 h-3.5 mr-1" />
+              Одобрить допуск
+            </Button>
+            <Button
+              v-if="selectedComputer.enrollment_status !== 'blocked'"
+              variant="destructive"
+              size="sm"
+              @click="handleBlock(selectedComputer)"
+            >
+              <Ban class="w-3.5 h-3.5 mr-1" />
+              Заблокировать
+            </Button>
+            <Button
+              v-if="selectedComputer.enrollment_status === 'blocked'"
+              variant="outline"
+              size="sm"
+              @click="handleResetPending(selectedComputer)"
+            >
+              <RotateCcw class="w-3.5 h-3.5 mr-1" />
+              В статус заявки
+            </Button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="scanning"
+              @click="handleTriggerScan(selectedComputer, false)"
+            >
+              <Radio class="w-3.5 h-3.5 mr-1 text-emerald-600" />
+              {{ scanning ? 'Отправка...' : 'Запустить скан агента' }}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="scanning"
+              @click="handleTriggerScan(selectedComputer, true)"
+            >
+              <RefreshCw class="w-3.5 h-3.5 mr-1 text-blue-600" />
+              {{ scanning ? 'Отправка...' : 'Глубокий скан (реестр)' }}
+            </Button>
           </div>
         </div>
 

@@ -153,6 +153,18 @@ async def init_db():
                         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'substitution_cache') THEN
                             ALTER TABLE substitution_cache ALTER COLUMN software_name TYPE TEXT;
                         END IF;
+
+                        -- Категории сотрудников и разрешённое ПО
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees') THEN
+                            ALTER TABLE employees ADD COLUMN IF NOT EXISTS user_category VARCHAR(100);
+                        END IF;
+
+                        CREATE TABLE IF NOT EXISTS employee_categories (
+                            id SERIAL PRIMARY KEY,
+                            name VARCHAR(100) UNIQUE NOT NULL,
+                            description TEXT,
+                            allowed_software_list TEXT
+                        );
                     END $$;
                 """))
             except Exception as e:

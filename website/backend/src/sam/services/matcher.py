@@ -888,42 +888,51 @@ async def match_by_openai(
 
     catalog_names = [c.name for c in catalog_items]
     prompt = (
-        f"You are a Software Asset Management (SAM) matching assistant.\n"
-        f"Task: Identify the canonical software name, vendor, and matching catalog software for this process/binary.\n"
-        f"Process name: '{raw_process_name}'\n"
-        f"Publisher: '{publisher or 'Unknown'}'\n"
-        f"Available Corporate Catalog: {json.dumps(catalog_names, ensure_ascii=False)}\n\n"
-        f"IMPORTANT: Only match to a catalog item if you are highly confident it is the SAME product.\n"
-        f"If the process/binary is NOT in the catalog, set matched_catalog_name to null.\n"
-        f"Do NOT guess or assume — be conservative. A wrong match is worse than no match.\n\n"
-        f"Respond ONLY with a valid JSON object in this format:\n"
+        f"Ты — ассистент по управлению программными активами (SAM).\n"
+        f"Задача: определить каноническое название ПО, вендора и сопоставить процесс/бинарный файл с корпоративным каталогом.\n\n"
+        f"Входные данные:\n"
+        f"- Имя процесса: '{raw_process_name}'\n"
+        f"- Издатель (Publisher): '{publisher or 'Неизвестно'}'\n"
+        f"- Доступный корпоративный каталог: {json.dumps(catalog_names, ensure_ascii=False)}\n\n"
+        f"ПРАВИЛА:\n"
+        f"1. Выбирай элемент из каталога ТОЛЬКО если ты полностью уверен, что это ОДИН И ТОТ ЖЕ продукт.\n"
+        f"2. Если процесса нет в каталоге или есть малейшие сомнения — ставь в matched_catalog_name значение null.\n"
+        f"3. Не угадывай и не додумывай — будь максимально консервативен. Ошибочное совпадение хуже, чем его отсутствие.\n\n"
+        f"Верни ответ СТРОГО в виде валидного JSON-объекта без какого-либо дополнительного текста или markdown-разметки:\n"
         f"{{\n"
-        f'  "official_name": "Official Product Name",\n'
-        f'  "vendor": "Publisher Name",\n'
-        f'  "matched_catalog_name": "Exact item from catalog or null",\n'
+        f'  "official_name": "Официальное название продукта",\n'
+        f'  "vendor": "Название вендора/издателя",\n'
+        f'  "matched_catalog_name": "Точное название из каталога или null",\n'
         f'  "confidence": 0.95,\n'
-        f'  "reasoning": "Brief explanation in Russian"\n'
+        f'  "reasoning": "Краткое обоснование на русском языке"\n'
         f"}}"
     )
 
     try:
         response = await asyncio.wait_for(
             client.chat.completions.create(
-                model=settings.OPENAI_MODEL or "gpt-4o-mini",
+                model=settings.OPENAI_MODEL or "GigaChat",
                 messages=[
-                    {"role": "system", "content": "You are a professional IT asset normalizer. Output JSON only. Be conservative — only match if certain."},
+                    {
+                        "role": "system",
+                        "content": "Ты — профессиональный нормализатор ИТ-активов. Отвечай строго в формате валидного JSON без пояснений до и после. Будь консервативен: сопоставляй с каталогом только при полной уверенности."
+                    },
                     {"role": "user", "content": prompt},
                 ],
-                response_format={"type": "json_object"},
-                temperature=0.0,
+                # response_format убран, так как GigaChat не поддерживает type="json_object"
+                temperature=0.01,  # В GigaChat 0.0 иногда вызывает ошибку валидации (min > 0), 0.01 безопаснее
             ),
-            timeout=5.0
+            timeout=8.0  # Для GigaChat лучше чуть увеличить таймаут (5 сек иногда не хватает)
         )
-        content = response.choices[0].message.content
-        if not content:
-            return None
 
-        parsed = json.loads(content)
+        raw_content = response.choices[0].message.content.strip()
+        
+        # Очищаем от ```json ... ``` на случай, если модель проигнорирует запрет на markdown
+        match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+        if not match:
+            raise ValueError(f"JSON not found in GigaChat response: {raw_content}")
+            
+        result = json.loads(match.group(0))
         matched_cat_name = parsed.get("matched_catalog_name")
 
         cat_item = None

@@ -5,12 +5,16 @@ from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sam.db import get_db
 from sam.models.employee import Employee
+from sam.models.employee_category import EmployeeCategory
 from sam.models.computer import Computer
 from sam.schemas.employee import (
     EmployeeCreate,
     EmployeeUpdate,
     EmployeeResponse,
     EmployeeDetailResponse,
+    EmployeeCategoryCreate,
+    EmployeeCategoryUpdate,
+    EmployeeCategoryResponse,
 )
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
@@ -58,6 +62,7 @@ async def get_employees(
             "department": emp.department,
             "position": emp.position,
             "status": emp.status,
+            "user_category": emp.user_category,
             "computers_count": len(emp.computers) if emp.computers else 0,
             "created_at": emp.created_at,
             "updated_at": emp.updated_at,
@@ -73,6 +78,7 @@ async def create_employee(payload: EmployeeCreate, db: AsyncSession = Depends(ge
         department=payload.department,
         position=payload.position,
         status=payload.status or "active",
+        user_category=payload.user_category,
     )
     db.add(emp)
     await db.commit()
@@ -85,10 +91,118 @@ async def create_employee(payload: EmployeeCreate, db: AsyncSession = Depends(ge
         "department": emp.department,
         "position": emp.position,
         "status": emp.status,
+        "user_category": emp.user_category,
         "computers_count": 0,
         "created_at": emp.created_at,
         "updated_at": emp.updated_at,
     }
+
+
+# === Категории сотрудников и перечни разрешённого ПО ===
+
+@router.get("/categories", response_model=List[EmployeeCategoryResponse])
+async def get_employee_categories(db: AsyncSession = Depends(get_db)):
+    """
+    Возвращает список категорий сотрудников с перечнем разрешённого ПО.
+    """
+    res = await db.execute(select(EmployeeCategory).order_by(EmployeeCategory.id.asc()))
+    cats = res.scalars().all()
+    out = []
+    for c in cats:
+        cnt = (
+            await db.execute(
+                select(func.count(Employee.id)).where(
+                    func.lower(Employee.user_category) == c.name.lower()
+                )
+            )
+        ).scalar_one()
+        out.append({
+            "id": c.id,
+            "name": c.name,
+            "description": c.description,
+            "allowed_software_list": c.allowed_software_list,
+            "employees_count": cnt,
+        })
+    return out
+
+
+@router.post("/categories", response_model=EmployeeCategoryResponse)
+async def create_employee_category(
+    payload: EmployeeCategoryCreate, db: AsyncSession = Depends(get_db)
+):
+    """
+    Создаёт категорию сотрудников и перечень разрешённого ПО.
+    """
+    cat = EmployeeCategory(
+        name=payload.name.strip(),
+        description=payload.description,
+        allowed_software_list=payload.allowed_software_list,
+    )
+    db.add(cat)
+    await db.commit()
+    await db.refresh(cat)
+    return {
+        "id": cat.id,
+        "name": cat.name,
+        "description": cat.description,
+        "allowed_software_list": cat.allowed_software_list,
+        "employees_count": 0,
+    }
+
+
+@router.put("/categories/{category_id}", response_model=EmployeeCategoryResponse)
+async def update_employee_category(
+    category_id: int, payload: EmployeeCategoryUpdate, db: AsyncSession = Depends(get_db)
+):
+    """
+    Обновляет категорию сотрудников и перечень разрешённого софта.
+    """
+    res = await db.execute(
+        select(EmployeeCategory).where(EmployeeCategory.id == category_id)
+    )
+    cat = res.scalar_one_or_none()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Категория сотрудников не найдена")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(cat, field, value)
+
+    await db.commit()
+    await db.refresh(cat)
+
+    cnt = (
+        await db.execute(
+            select(func.count(Employee.id)).where(
+                func.lower(Employee.user_category) == cat.name.lower()
+            )
+        )
+    ).scalar_one()
+
+    return {
+        "id": cat.id,
+        "name": cat.name,
+        "description": cat.description,
+        "allowed_software_list": cat.allowed_software_list,
+        "employees_count": cnt,
+    }
+
+
+@router.delete("/categories/{category_id}")
+async def delete_employee_category(category_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Удаляет категорию сотрудников.
+    """
+    res = await db.execute(
+        select(EmployeeCategory).where(EmployeeCategory.id == category_id)
+    )
+    cat = res.scalar_one_or_none()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Категория сотрудников не найдена")
+
+    await db.delete(cat)
+    await db.commit()
+    return {"success": True}
 
 
 @router.get("/{employee_id}", response_model=EmployeeDetailResponse)
@@ -131,6 +245,7 @@ async def get_employee(employee_id: str, db: AsyncSession = Depends(get_db)):
         "department": emp.department,
         "position": emp.position,
         "status": emp.status,
+        "user_category": emp.user_category,
         "computers_count": len(emp.computers) if emp.computers else 0,
         "computers": comps_out,
         "created_at": emp.created_at,
@@ -166,6 +281,7 @@ async def update_employee(
         "department": emp.department,
         "position": emp.position,
         "status": emp.status,
+        "user_category": emp.user_category,
         "computers_count": len(emp.computers) if emp.computers else 0,
         "created_at": emp.created_at,
         "updated_at": emp.updated_at,

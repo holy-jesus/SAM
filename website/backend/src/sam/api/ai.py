@@ -99,7 +99,7 @@ async def batch_normalize(db: AsyncSession = Depends(get_db)):
 
 @router.post("/analyze-eula", response_model=EulaAnalysisResponse)
 async def analyze_eula(payload: EulaAnalyzeRequest, db: AsyncSession = Depends(get_db)):
-    analysis = analyze_eula_text(payload.eula_text)
+    analysis = await analyze_eula_text(payload.eula_text)
 
     if payload.license_id:
         try:
@@ -107,6 +107,12 @@ async def analyze_eula(payload: EulaAnalyzeRequest, db: AsyncSession = Depends(g
             lic_res = await db.execute(select(License).where(License.id == lid))
             lic = lic_res.scalar_one_or_none()
             if lic:
+                analyzed_at_val = analysis.get("analyzed_at")
+                if hasattr(analyzed_at_val, "isoformat"):
+                    analyzed_at_str = analyzed_at_val.isoformat()
+                else:
+                    analyzed_at_str = str(analyzed_at_val) if analyzed_at_val else None
+
                 serializable = {
                     "commercial_use_allowed": analysis["commercial_use_allowed"],
                     "risk_level": analysis["risk_level"],
@@ -114,7 +120,7 @@ async def analyze_eula(payload: EulaAnalyzeRequest, db: AsyncSession = Depends(g
                     "trial_period_days": analysis["trial_period_days"],
                     "key_restrictions": analysis["key_restrictions"],
                     "summary_ru": analysis["summary_ru"],
-                    "analyzed_at": analysis["analyzed_at"].isoformat(),
+                    "analyzed_at": analyzed_at_str,
                 }
                 lic.eula_analysis = serializable
                 lic.eula_text = payload.eula_text

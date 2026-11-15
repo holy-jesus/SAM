@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple, Optional
 import requests
+import asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sam.config import settings
@@ -400,3 +401,48 @@ async def generate_registry_embeddings_batch(db: AsyncSession, limit: int = 200)
     except Exception as e:
         print(f"Notice: generating registry embeddings failed: {e}")
         return 0
+
+
+_registry_sync_task: Optional[asyncio.Task] = None
+
+
+async def _daily_registry_sync_loop(interval_seconds: int = 86400):
+    """
+    Фоновый воркер автоматической периодической синхронизации Единого реестра ПО РФ.
+    По умолчанию запускается раз в сутки (86 400 секунд).
+    """
+    from sam.db import AsyncSessionLocal
+    print(f"[+] Фоновый планировщик синхронизации Единого реестра ПО РФ запущен (интервал: {interval_seconds // 3600} ч.).")
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            print("[*] Запуск плановой суточной синхронизации Единого реестра ПО РФ...")
+            async with AsyncSessionLocal() as session:
+                count = await sync_russian_registry(session)
+                print(f"[+] Плановая синхронизация реестра завершена: обновлено/добавлено {count} записей.")
+        except asyncio.CancelledError:
+            print("[*] Фоновый планировщик синхронизации реестра остановлен.")
+            break
+        except Exception as e:
+            print(f"[!] Ошибка в фоновом планировщике синхронизации реестра: {e}")
+            await asyncio.sleep(60)
+
+
+def start_registry_sync_worker(interval_seconds: int = 86400):
+    """Запускает фоновую периодическую синхронизацию Единого реестра ПО раз в сутки."""
+    global _registry_sync_task
+    if _registry_sync_task is None or _registry_sync_task.done():
+        try:
+            loop = asyncio.get_running_loop()
+            _registry_sync_task = loop.create_task(_daily_registry_sync_loop(interval_seconds))
+        except RuntimeError:
+            pass
+
+
+def stop_registry_sync_worker():
+    """Останавливает фоновую периодическую синхронизацию Единого реестра ПО."""
+    global _registry_sync_task
+    if _registry_sync_task and not _registry_sync_task.done():
+        _registry_sync_task.cancel()
+        _registry_sync_task = None
+

@@ -21,6 +21,7 @@ class Employee(Base):
     department: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     position: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="active", nullable=False, index=True)
+    user_category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

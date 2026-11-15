@@ -12,10 +12,12 @@ from sam.models.import_history import ImportHistory
 from sam.models.process_signature import ProcessSignature
 from sam.models.substitution import ImportSubstitution, SubstitutionCache
 from sam.models.vulnerability import Vulnerability
+from sam.models.employee_category import EmployeeCategory
 
 __all__ = [
     "User",
     "Employee",
+    "EmployeeCategory",
     "Computer",
     "SoftwareCategory",
     "SoftwareClassifier",

@@ -56,6 +56,7 @@ class AgentHeartbeatResponse(BaseModel):
     enrollment_status: Optional[str] = None
     can_send_data: bool = False
     message: Optional[str] = None
+    commands: List[str] = []
 
 
 

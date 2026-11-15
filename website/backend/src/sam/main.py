@@ -10,6 +10,10 @@ from sam.services.substitution_service import (
     stop_substitution_worker,
     scan_and_queue_unprocessed_catalog,
 )
+from sam.services.registry_sync import (
+    start_registry_sync_worker,
+    stop_registry_sync_worker,
+)
 
 
 @asynccontextmanager
@@ -32,6 +36,7 @@ async def lifespan(app: FastAPI):
 
     # 3. Запуск фонового воркера проверки импортозамещения с rate-limit
     start_substitution_worker()
+    start_registry_sync_worker(interval_seconds=86400)
     try:
         async with AsyncSessionLocal() as session:
             enqueued = await scan_and_queue_unprocessed_catalog(session)
@@ -45,6 +50,7 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     print("[*] Остановка сервиса SAM Backend...")
     stop_substitution_worker()
+    stop_registry_sync_worker()
 
 
 app = FastAPI(

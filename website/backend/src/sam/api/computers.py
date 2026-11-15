@@ -20,6 +20,7 @@ from sam.schemas.installed_software import (
     InstalledSoftwareResponse,
     InstalledSoftwareManualCreate,
 )
+from sam.api.connector import enqueue_agent_command
 
 router = APIRouter(prefix="/computers", tags=["Computers"])
 
@@ -433,3 +434,104 @@ async def remove_software_from_computer(
     await db.delete(inst)
     await db.commit()
     return {"success": True}
+
+
+@router.post("/{computer_id}/scan")
+async def trigger_computer_scan(
+    computer_id: str,
+    thorough: bool = Query(False, description="Запустить тщательное сканирование диска"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Отправляет команду на запуск удалённого сканирования ПО на агенте хоста.
+    Если агент онлайн по IP-адресу, запрос отправляется напрямую на порт 8765.
+    Команда также ставится в очередь Command & Control для следующего heartbeat.
+    """
+    try:
+        cid = uuid.UUID(computer_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат UUID")
+
+    result = await db.execute(select(Computer).where(Computer.id == cid))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Компьютер не найден")
+
+    # 1. Постановка команды в очередь для heartbeat
+    cmd = "scan_thorough" if thorough else "scan"
+    enqueue_agent_command(comp.serial_number, cmd)
+
+    # 2. Попытка прямого вызова API агента, если указан IP
+    direct_triggered = False
+    direct_message = None
+    if comp.ip_address:
+        try:
+            import httpx
+            agent_url = f"http://{comp.ip_address}:8765/api/v1/scan"
+            async with httpx.AsyncClient(timeout=2.5) as client:
+                resp = await client.post(agent_url, json={"thorough": thorough})
+                if resp.status_code in (200, 202):
+                    direct_triggered = True
+                    direct_message = "Команда сканирования немедленно принята агентом по сети."
+        except Exception:
+            pass
+
+    msg = direct_message or (
+        f"Команда '{cmd}' добавлена в очередь C2 и будет исполнена агентом {comp.hostname} при следующем heartbeat."
+    )
+    return {
+        "success": True,
+        "computer_id": str(comp.id),
+        "hostname": comp.hostname,
+        "command": cmd,
+        "direct_triggered": direct_triggered,
+        "message": msg,
+    }
+
+
+@router.get("/{computer_id}/agent-status")
+async def get_computer_agent_status(
+    computer_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Опрашивает статус локального агента на рабочей станции по порту 8765.
+    """
+    try:
+        cid = uuid.UUID(computer_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат UUID")
+
+    result = await db.execute(select(Computer).where(Computer.id == cid))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Компьютер не найден")
+
+    if not comp.ip_address:
+        return {
+            "online": False,
+            "agent_reachable": False,
+            "message": "У компьютера отсутствует IP-адрес",
+        }
+
+    try:
+        import httpx
+        agent_url = f"http://{comp.ip_address}:8765/api/v1/status"
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(agent_url)
+            if resp.status_code == 200:
+                return {
+                    "online": True,
+                    "agent_reachable": True,
+                    "agent_data": resp.json(),
+                }
+    except Exception as e:
+        pass
+
+    return {
+        "online": comp.is_online,
+        "agent_reachable": False,
+        "last_seen_at": comp.last_seen_at,
+        "message": f"Агент на {comp.ip_address}:8765 не ответил напрямую (используется фоновый статус)",
+    }
+

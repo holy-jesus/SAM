@@ -62,5 +62,42 @@ async def seed_database_if_empty(db: AsyncSession):
     except Exception as e:
         print(f"Notice: initial vulnerability load error: {e}")
 
-    # 5. Пересчёт алертов комплаенса
+    # 5. Категории сотрудников и перечень разрешённого ПО
+    try:
+        from sam.models.employee_category import EmployeeCategory
+        emp_cat_count = await db.execute(select(func.count(EmployeeCategory.id)))
+        if emp_cat_count.scalar_one() == 0:
+            default_emp_cats = [
+                EmployeeCategory(
+                    id=1,
+                    name="Разработка и ИТ",
+                    description="Инженеры, программисты, системные администраторы",
+                    allowed_software_list="Visual Studio, VS Code, PyCharm, Docker, Git, DBeaver, Postman, PostgreSQL, Node.js, Python, Golang",
+                ),
+                EmployeeCategory(
+                    id=2,
+                    name="Бухгалтерия и финансы",
+                    description="Бухгалтеры, финансисты, экономисты",
+                    allowed_software_list="1C, Microsoft Office, МойОфис, Контур, СБИС, Google Chrome, Яндекс Браузер",
+                ),
+                EmployeeCategory(
+                    id=3,
+                    name="Маркетинг и дизайн",
+                    description="Дизайнеры, маркетологи, контент-менеджеры",
+                    allowed_software_list="Figma, Adobe Photoshop, Illustrator, Blender, Canva, Telegram, Google Chrome",
+                ),
+                EmployeeCategory(
+                    id=4,
+                    name="Общий персонал",
+                    description="Сотрудники бэк-офиса и общих подразделений",
+                    allowed_software_list="Microsoft Office, МойОфис, Яндекс Браузер, Google Chrome, Telegram, 7-Zip, Касперский",
+                ),
+            ]
+            for ec in default_emp_cats:
+                db.add(ec)
+            await db.commit()
+    except Exception as e:
+        print(f"Notice: seeding employee categories: {e}")
+
+    # 6. Пересчёт алертов комплаенса
     await recalculate_compliance_alerts(db)

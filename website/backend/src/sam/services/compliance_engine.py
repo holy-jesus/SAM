@@ -187,6 +187,63 @@ async def recalculate_compliance_alerts(db: AsyncSession) -> int:
             )
         )
 
+    # 5. Rule 4: Employee Category Software Policy Compliance
+    # Checks if an employee has a category with an allowed software policy,
+    # and has installed software that is not authorized for that role.
+    try:
+        from sam.models.employee_category import EmployeeCategory
+        categories_res = await db.execute(select(EmployeeCategory))
+        emp_categories = {c.name.lower(): c for c in categories_res.scalars().all()}
+
+        if emp_categories:
+            emp_installs_res = await db.execute(
+                select(InstalledSoftware)
+                .join(Computer, InstalledSoftware.computer_id == Computer.id)
+                .join(Employee, Computer.employee_id == Employee.id)
+                .where(
+                    and_(
+                        InstalledSoftware.is_deleted == False,
+                        Employee.user_category.is_not(None),
+                        Employee.status == "active",
+                    )
+                )
+            )
+            emp_installs = emp_installs_res.scalars().all()
+
+            for inst in emp_installs:
+                comp = inst.computer
+                emp = comp.employee if comp else None
+                if not emp or not emp.user_category:
+                    continue
+
+                cat_info = emp_categories.get(emp.user_category.strip().lower())
+                if not cat_info or not cat_info.allowed_software_list:
+                    continue
+
+                allowed_tokens = [t.strip().lower() for t in cat_info.allowed_software_list.split(",") if t.strip()]
+                sw_name = (inst.raw_display_name or "").lower()
+                cat_sw_name = (inst.catalog_software.name if inst.catalog_software else "").lower()
+
+                is_allowed = any(tok in sw_name or (cat_sw_name and tok in cat_sw_name) for tok in allowed_tokens)
+                if not is_allowed and inst.catalog_software and inst.catalog_software.license_type in ["Commercial", "Платный"]:
+                    new_alerts.append(
+                        ComplianceAlert(
+                            alert_type="unauthorized_category_software",
+                            severity="warning",
+                            computer_id=comp.id if comp else None,
+                            software_id=inst.catalog_software_id,
+                            title=f"Несоответствие роли: {inst.raw_display_name} у {emp.full_name}",
+                            description=(
+                                f"Сотрудник {emp.full_name} (категория: «{emp.user_category}») использует платное ПО "
+                                f"'{inst.raw_display_name}', отсутствующее в утверждённом перечне разрешённого софта для этой роли."
+                            ),
+                            financial_risk_amount=Decimal("30000.00"),
+                            status="active",
+                        )
+                    )
+    except Exception as e:
+        print(f"Notice: employee category compliance check error: {e}")
+
     # Save alerts
     for a in new_alerts:
         db.add(a)

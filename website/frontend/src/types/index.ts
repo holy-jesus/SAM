@@ -17,10 +17,26 @@ export interface Employee {
   department?: string;
   position?: string;
   status: EmployeeStatus;
+  user_category?: string;
   created_at?: string;
   updated_at?: string;
   computers_count?: number;
   computers?: Computer[];
+}
+
+export interface EmployeeCategory {
+  id: number;
+  name: string;
+  description?: string;
+  allowed_software_list?: string;
+  employees_count?: number;
+}
+
+export interface ComputerEnrollmentStats {
+  total: number;
+  pending: number;
+  approved: number;
+  blocked: number;
 }
 
 export interface Computer {
@@ -35,6 +51,7 @@ export interface Computer {
   ram_mb?: number;
   disk_info?: any;
   is_online: boolean;
+  enrollment_status?: 'pending' | 'approved' | 'blocked';
   last_seen_at?: string;
   employee_id?: string | null;
   employee?: Employee;

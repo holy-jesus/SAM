@@ -24,6 +24,8 @@ import {
   VulnerabilitiesListResponse,
   ComputerVulnerabilitiesResponse,
   VulnerabilitySyncResponse,
+  ComputerEnrollmentStats,
+  EmployeeCategory,
 } from '@/types';
 import * as mock from './mockData';
 
@@ -240,8 +242,89 @@ export const api = {
     }
   },
 
+  // === Категории сотрудников и перечни разрешённого ПО ===
+  async getEmployeeCategories(): Promise<EmployeeCategory[]> {
+    try {
+      const res = await apiClient.get('/employees/categories');
+      return res.data;
+    } catch {
+      await delay();
+      return [
+        {
+          id: 1,
+          name: 'Разработка и ИТ',
+          description: 'Инженеры, программисты, DevOps, системные администраторы',
+          allowed_software_list: 'Visual Studio, VS Code, PyCharm, Docker, Git, DBeaver, Postman, PostgreSQL, Node.js, Python, Golang',
+          employees_count: 5,
+        },
+        {
+          id: 2,
+          name: 'Бухгалтерия и финансы',
+          description: 'Бухгалтеры, финансисты, экономисты',
+          allowed_software_list: '1C, Microsoft Office, МойОфис, Контур, СБИС, Google Chrome, Яндекс Браузер',
+          employees_count: 4,
+        },
+        {
+          id: 3,
+          name: 'Маркетинг и дизайн',
+          description: 'Дизайнеры, маркетологи, контент-менеджеры',
+          allowed_software_list: 'Figma, Adobe Photoshop, Illustrator, Blender, Canva, Telegram, Google Chrome',
+          employees_count: 3,
+        },
+        {
+          id: 4,
+          name: 'Общий персонал',
+          description: 'Сотрудники бэк-офиса и общих подразделений',
+          allowed_software_list: 'Microsoft Office, МойОфис, Яндекс Браузер, Google Chrome, Telegram, 7-Zip, Касперский',
+          employees_count: 6,
+        },
+      ];
+    }
+  },
+
+  async createEmployeeCategory(data: Partial<EmployeeCategory>): Promise<EmployeeCategory> {
+    try {
+      const res = await apiClient.post('/employees/categories', data);
+      return res.data;
+    } catch {
+      await delay();
+      return {
+        id: Date.now(),
+        name: data.name || 'Новая категория',
+        description: data.description || '',
+        allowed_software_list: data.allowed_software_list || '',
+        employees_count: 0,
+      };
+    }
+  },
+
+  async updateEmployeeCategory(id: number, data: Partial<EmployeeCategory>): Promise<EmployeeCategory> {
+    try {
+      const res = await apiClient.put(`/employees/categories/${id}`, data);
+      return res.data;
+    } catch {
+      await delay();
+      return {
+        id,
+        name: data.name || 'Обновлённая категория',
+        description: data.description,
+        allowed_software_list: data.allowed_software_list,
+      };
+    }
+  },
+
+  async deleteEmployeeCategory(id: number): Promise<{ success: boolean }> {
+    try {
+      const res = await apiClient.delete(`/employees/categories/${id}`);
+      return res.data;
+    } catch {
+      await delay();
+      return { success: true };
+    }
+  },
+
   // === Компьютеры и хосты ===
-  async getComputers(params?: { search?: string; is_online?: boolean }): Promise<Computer[]> {
+  async getComputers(params?: { search?: string; is_online?: boolean; status?: string; enrollment_status?: string }): Promise<Computer[]> {
     try {
       const res = await apiClient.get('/computers', { params });
       return res.data;
@@ -255,7 +338,85 @@ export const api = {
       if (params?.is_online !== undefined) {
         list = list.filter((c) => c.is_online === params.is_online);
       }
+      const st = params?.status || params?.enrollment_status;
+      if (st && st !== 'all') {
+        list = list.filter((c) => (c.enrollment_status || 'approved') === st.toLowerCase());
+      }
       return list;
+    }
+  },
+
+  async getComputerEnrollmentStats(): Promise<ComputerEnrollmentStats> {
+    try {
+      const res = await apiClient.get('/computers/enrollment/stats');
+      return res.data;
+    } catch {
+      await delay();
+      const total = computersState.length;
+      const pending = computersState.filter((c) => c.enrollment_status === 'pending').length;
+      const blocked = computersState.filter((c) => c.enrollment_status === 'blocked').length;
+      const approved = total - pending - blocked;
+      return { total, pending, approved: Math.max(0, approved), blocked };
+    }
+  },
+
+  async approveComputer(id: string): Promise<Computer> {
+    try {
+      const res = await apiClient.post(`/computers/${id}/approve`);
+      return res.data;
+    } catch {
+      await delay();
+      const idx = computersState.findIndex((c) => c.id === id);
+      if (idx !== -1) {
+        computersState[idx] = { ...computersState[idx], enrollment_status: 'approved' };
+        return computersState[idx];
+      }
+      throw new Error('Computer not found');
+    }
+  },
+
+  async blockComputer(id: string): Promise<Computer> {
+    try {
+      const res = await apiClient.post(`/computers/${id}/block`);
+      return res.data;
+    } catch {
+      await delay();
+      const idx = computersState.findIndex((c) => c.id === id);
+      if (idx !== -1) {
+        computersState[idx] = { ...computersState[idx], enrollment_status: 'blocked' };
+        return computersState[idx];
+      }
+      throw new Error('Computer not found');
+    }
+  },
+
+  async resetPendingComputer(id: string): Promise<Computer> {
+    try {
+      const res = await apiClient.post(`/computers/${id}/reset-pending`);
+      return res.data;
+    } catch {
+      await delay();
+      const idx = computersState.findIndex((c) => c.id === id);
+      if (idx !== -1) {
+        computersState[idx] = { ...computersState[idx], enrollment_status: 'pending' };
+        return computersState[idx];
+      }
+      throw new Error('Computer not found');
+    }
+  },
+
+  async triggerComputerScan(id: string, thorough = false): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await apiClient.post(`/computers/${id}/scan`, null, { params: { thorough } });
+      return res.data;
+    } catch {
+      await delay(400);
+      return {
+        success: true,
+        message: thorough
+          ? 'Команда полного сканирования поставлена в очередь C2 агента'
+          : 'Команда быстрого сканирования передана агенту',
+      };
     }
   },
 
