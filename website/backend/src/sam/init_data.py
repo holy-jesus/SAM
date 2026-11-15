@@ -58,7 +58,7 @@ async def seed_database_if_empty(db: AsyncSession):
     try:
         vuln_count = (await db.execute(select(func.count(Vulnerability.id)))).scalar_one()
         if vuln_count == 0:
-            await sync_vulnerabilities_from_file(db)
+            await sync_vulnerabilities_from_file(db, limit_rows=10000)
     except Exception as e:
         print(f"Notice: initial vulnerability load error: {e}")
 
