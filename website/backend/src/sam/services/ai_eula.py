@@ -64,10 +64,17 @@ def get_openai_client() -> Optional[Any]:
         print(f"Notice: failed to initialize AsyncOpenAI client in ai_eula: {e}")
         return None
 
+def _extract_json(raw_text: str) -> Dict[str, Any]:
+    """Безопасно извлекает JSON-объект из ответа GigaChat (убирая ```json и лишний текст)."""
+    match = re.search(r"\{.*\}", raw_text.strip(), re.DOTALL)
+    if not match:
+        raise ValueError(f"JSON object not found in LLM response: {raw_text[:200]}")
+    return json.loads(match.group(0))
+
 
 async def _run_eula_analysis_with_openai(client: Any, eula_text: str) -> Optional[Dict[str, Any]]:
     """
-    Выполняет анализ текста EULA через OpenAI API (модель из settings.OPENAI_MODEL или gpt-4o-mini).
+    Выполняет анализ текста EULA через LLM (адаптировано под GigaChat).
     """
     clean_text = eula_text.strip()
     if len(clean_text) > 25000:
@@ -75,19 +82,25 @@ async def _run_eula_analysis_with_openai(client: Any, eula_text: str) -> Optiona
 
     resp = await asyncio.wait_for(
         client.chat.completions.create(
-            model=settings.OPENAI_MODEL or "gpt-4o-mini",
+            model=settings.OPENAI_MODEL or "GigaChat",
             messages=[
-                {"role": "system", "content": EULA_ANALYSIS_SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": (
+                        f"{EULA_ANALYSIS_SYSTEM_PROMPT}\n\n"
+                        "ВАЖНО: Верни ответ СТРОГО в виде валидного JSON-объекта без markdown-разметки (без ```json) и без пояснений."
+                    ),
+                },
                 {"role": "user", "content": f"Текст лицензионного соглашения (EULA) для анализа:\n\n{clean_text}"},
             ],
-            response_format={"type": "json_object"},
+            # response_format убран (не поддерживается GigaChat)
             temperature=0.1,
         ),
-        timeout=20.0
+        timeout=30.0  # Для длинного текста EULA (до 25k символов) лучше дать 30 сек
     )
 
     content = resp.choices[0].message.content or "{}"
-    data = json.loads(content)
+    data = _extract_json(content)  # Используем хелпер из предыдущего шага
 
     commercial_allowed = bool(data.get("commercial_use_allowed", True))
     raw_risk = str(data.get("risk_level", "")).strip().lower()
@@ -116,7 +129,7 @@ async def _run_eula_analysis_with_openai(client: Any, eula_text: str) -> Optiona
     summary_ru = str(data.get("summary_ru", "")).strip()
     if not summary_ru:
         summary_ru = (
-            "Анализ лицензионного соглашения выполнен с помощью модели OpenAI. "
+            "Анализ лицензионного соглашения выполнен с помощью ИИ-ассистента. "
             f"Коммерческое использование: {'разрешено' if commercial_allowed else 'запрещено'}."
         )
 
@@ -129,7 +142,6 @@ async def _run_eula_analysis_with_openai(client: Any, eula_text: str) -> Optiona
         "summary_ru": summary_ru,
         "analyzed_at": datetime.now(timezone.utc),
     }
-
 
 def _fallback_deterministic_eula_analysis(eula_text: str) -> Dict[str, Any]:
     """

@@ -156,33 +156,47 @@ def get_openai_client() -> Optional[Any]:
         return None
 
 
+def _extract_json(raw_text: str) -> Dict[str, Any]:
+    """Безопасно извлекает JSON-объект из ответа GigaChat (убирая ```json и лишний текст)."""
+    match = re.search(r"\{.*\}", raw_text.strip(), re.DOTALL)
+    if not match:
+        raise ValueError(f"JSON object not found in LLM response: {raw_text[:200]}")
+    return json.loads(match.group(0))
+
+
 async def _run_ai_chat_with_openai(
     client: Any,
     db: AsyncSession,
     query: str
 ) -> Optional[Dict[str, Any]]:
     """
-    Основной пайплайн реального OpenAI API:
-    1. Генерация Text-to-SQL через OpenAI Chat Completion.
+    Основной пайплайн работы с LLM (адаптировано под GigaChat):
+    1. Генерация Text-to-SQL через Chat Completion.
     2. Безопасное исполнение сгенерированного SQL в PostgreSQL.
-    3. Синтез развернутого ответа на русском языке через OpenAI.
+    3. Синтез развернутого ответа на русском языке.
     """
-    # Шаг 1. Обращение к OpenAI для извлечения намерения и Text-to-SQL
+    # Шаг 1. Извлечение намерения и Text-to-SQL
     sql_intent_resp = await asyncio.wait_for(
         client.chat.completions.create(
-            model=settings.OPENAI_MODEL or "gpt-4o-mini",
+            model=settings.OPENAI_MODEL or "GigaChat",
             messages=[
-                {"role": "system", "content": SAM_DATABASE_SCHEMA_PROMPT},
+                {
+                    "role": "system",
+                    "content": (
+                        f"{SAM_DATABASE_SCHEMA_PROMPT}\n\n"
+                        "ВАЖНО: Верни ответ СТРОГО в виде валидного JSON-объекта без markdown-разметки (без ```json) и без поясняющего текста."
+                    ),
+                },
                 {"role": "user", "content": f"Вопрос пользователя: {query}"},
             ],
-            response_format={"type": "json_object"},
-            temperature=0.0,
+            # response_format убран (не поддерживается GigaChat)
+            temperature=0.01,
         ),
-        timeout=12.0
+        timeout=15.0
     )
 
     content = sql_intent_resp.choices[0].message.content or "{}"
-    parsed_intent = json.loads(content)
+    parsed_intent = _extract_json(content)
 
     needs_sql = parsed_intent.get("needs_sql", False)
     sql = parsed_intent.get("sql")
@@ -191,7 +205,7 @@ async def _run_ai_chat_with_openai(
     if not needs_sql or not sql:
         consultation_resp = await asyncio.wait_for(
             client.chat.completions.create(
-                model=settings.OPENAI_MODEL or "gpt-4o-mini",
+                model=settings.OPENAI_MODEL or "GigaChat",
                 messages=[
                     {
                         "role": "system",
@@ -205,7 +219,7 @@ async def _run_ai_chat_with_openai(
                 ],
                 temperature=0.3,
             ),
-            timeout=12.0
+            timeout=15.0
         )
         answer = consultation_resp.choices[0].message.content or ""
         return {
@@ -216,7 +230,7 @@ async def _run_ai_chat_with_openai(
 
     # Шаг 2. Проверка безопасности сгенерированного SQL
     if not is_safe_select_query(sql):
-        print(f"Warning: OpenAI generated non-safe SQL: {sql}")
+        print(f"Warning: LLM generated non-safe SQL: {sql}")
         return None
 
     # Шаг 3. Исполнение SQL в базе данных SAM
@@ -225,7 +239,7 @@ async def _run_ai_chat_with_openai(
         rows = db_res.mappings().all()
         data = [dict(r) for r in rows]
     except Exception as sql_err:
-        print(f"Notice: OpenAI generated SQL failed execution: {sql_err}")
+        print(f"Notice: LLM generated SQL failed execution: {sql_err}")
         return None
 
     # Шаг 4. Синтез аналитического ответа ИТ-директору на основе полученных данных
@@ -242,7 +256,7 @@ async def _run_ai_chat_with_openai(
 
     synthesis_resp = await asyncio.wait_for(
         client.chat.completions.create(
-            model=settings.OPENAI_MODEL or "gpt-4o-mini",
+            model=settings.OPENAI_MODEL or "GigaChat",
             messages=[
                 {
                     "role": "system",
@@ -255,7 +269,7 @@ async def _run_ai_chat_with_openai(
             ],
             temperature=0.2,
         ),
-        timeout=15.0
+        timeout=20.0
     )
 
     answer = synthesis_resp.choices[0].message.content or ""
@@ -264,7 +278,6 @@ async def _run_ai_chat_with_openai(
         "sql_executed": sql.strip(),
         "data": data,
     }
-
 
 async def _fallback_deterministic_analysis(db: AsyncSession, query: str) -> Dict[str, Any]:
     """
