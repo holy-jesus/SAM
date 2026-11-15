@@ -157,6 +157,8 @@ export interface InstalledSoftware {
   source: 'agent' | 'automatic' | 'manual';
   catalog_software_id?: string | null;
   catalog_software_name?: string;
+  normalized_name?: string | null;
+  match_source?: string | null;
   category_id?: number | null;
   category_name?: string;
   is_problematic?: boolean;

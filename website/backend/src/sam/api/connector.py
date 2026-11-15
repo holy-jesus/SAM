@@ -241,6 +241,10 @@ async def receive_agent_report(payload: AgentReportRequest, db: AsyncSession = D
             existing_inst.last_launched_at = launch_time
             existing_inst.last_seen_at = now
             existing_inst.is_deleted = False
+            if match_res.get("matched_name"):
+                existing_inst.normalized_name = match_res.get("matched_name")
+            if match_res.get("match_source"):
+                existing_inst.match_source = match_res.get("match_source")
             if not existing_inst.is_verified_by_admin:
                 existing_inst.catalog_software_id = uuid.UUID(cat_id) if cat_id else None
                 existing_inst.category_id = category_id
@@ -259,6 +263,8 @@ async def receive_agent_report(payload: AgentReportRequest, db: AsyncSession = D
                 category_id=category_id,
                 match_confidence=conf,
                 is_verified_by_admin=conf >= 0.90,
+                normalized_name=match_res.get("matched_name"),
+                match_source=match_res.get("match_source"),
                 last_seen_at=now,
             )
             db.add(new_inst)
@@ -411,6 +417,8 @@ async def upload_dump_file(
             category_id=category_id,
             match_confidence=conf,
             is_verified_by_admin=conf >= 0.90,
+            normalized_name=match_res.get("matched_name"),
+            match_source=match_res.get("match_source"),
             last_launched_at=now,
             last_seen_at=now,
         )

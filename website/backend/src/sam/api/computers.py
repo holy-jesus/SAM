@@ -382,6 +382,8 @@ async def add_software_to_computer(
         category_id=category_id,
         match_confidence=1.0,
         is_verified_by_admin=True,
+        normalized_name=cat_software.name if cat_software else display_name,
+        match_source="admin" if cat_software else "manual",
         last_launched_at=payload.last_launched_at or datetime.now(timezone.utc),
     )
     db.add(inst)

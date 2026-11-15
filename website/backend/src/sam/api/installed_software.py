@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sam.db import get_db
 from sam.models.installed_software import InstalledSoftware
 from sam.models.category import SoftwareCategory
+from sam.models.process_signature import ProcessSignature
 from sam.schemas.installed_software import (
     InstalledSoftwareResponse,
     UpdateSoftwareCategoryRequest,
@@ -14,7 +15,7 @@ from sam.schemas.installed_software import (
 router = APIRouter(prefix="/installed-software", tags=["Installed Software"])
 
 
-def _serialize_installed(s: InstalledSoftware) -> dict:
+def _serialize_installed(s: InstalledSoftware, sig: Optional[ProcessSignature] = None) -> dict:
     comp = s.computer
     cat_sw = s.catalog_software
     category = s.category
@@ -22,6 +23,19 @@ def _serialize_installed(s: InstalledSoftware) -> dict:
     is_domestic = bool(cat_sw and (cat_sw.ru_registry_id or getattr(cat_sw, "ru_registry", None)))
     has_sub = cat_sw.has_substitution if cat_sw else None
     sub_count = cat_sw.substitutions_count if cat_sw else 0
+
+    norm_name = getattr(s, "normalized_name", None)
+    m_source = getattr(s, "match_source", None)
+
+    if not norm_name:
+        if cat_sw:
+            norm_name = cat_sw.name
+            if not m_source:
+                m_source = "catalog"
+        elif sig:
+            norm_name = sig.normalized_name
+            if not m_source:
+                m_source = sig.match_source
 
     return {
         "id": str(s.id),
@@ -37,6 +51,8 @@ def _serialize_installed(s: InstalledSoftware) -> dict:
         "source": s.source,
         "catalog_software_id": str(s.catalog_software_id) if s.catalog_software_id else None,
         "catalog_software_name": cat_sw.name if cat_sw else None,
+        "normalized_name": norm_name,
+        "match_source": m_source,
         "category_id": s.category_id,
         "category_name": category.name if category else None,
         "is_problematic": category.is_problematic if category else False,
@@ -66,6 +82,7 @@ async def get_installed_software(
             or_(
                 func.lower(InstalledSoftware.raw_display_name).like(s),
                 func.lower(InstalledSoftware.raw_publisher).like(s),
+                func.lower(InstalledSoftware.normalized_name).like(s),
             )
         )
 
@@ -78,7 +95,14 @@ async def get_installed_software(
     query = query.order_by(InstalledSoftware.raw_display_name.asc())
     result = await db.execute(query)
     items = result.scalars().all()
-    return [_serialize_installed(i) for i in items]
+
+    # Загружаем сигнатуры процессов для обогащения, если в базе ещё не заполнен normalized_name
+    sig_stmt = select(ProcessSignature)
+    sig_res = await db.execute(sig_stmt)
+    signatures = sig_res.scalars().all()
+    sig_by_proc = {sig.process_name.lower(): sig for sig in signatures}
+
+    return [_serialize_installed(i, sig_by_proc.get(i.raw_display_name.lower())) for i in items]
 
 
 @router.put("/{installed_id}/category", response_model=InstalledSoftwareResponse)

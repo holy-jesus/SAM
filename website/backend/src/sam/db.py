@@ -159,6 +159,12 @@ async def init_db():
                             ALTER TABLE employees ADD COLUMN IF NOT EXISTS user_category VARCHAR(100);
                         END IF;
 
+                        -- Колонки нормализованного имени и источника мэтчинга (Wikimedia, OpenAI, Реестр РФ)
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'installed_software') THEN
+                            ALTER TABLE installed_software ADD COLUMN IF NOT EXISTS normalized_name VARCHAR(500);
+                            ALTER TABLE installed_software ADD COLUMN IF NOT EXISTS match_source VARCHAR(50);
+                        END IF;
+
                         CREATE TABLE IF NOT EXISTS employee_categories (
                             id SERIAL PRIMARY KEY,
                             name VARCHAR(100) UNIQUE NOT NULL,

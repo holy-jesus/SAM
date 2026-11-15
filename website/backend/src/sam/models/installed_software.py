@@ -39,6 +39,9 @@ class InstalledSoftware(Base):
     is_verified_by_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    normalized_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, index=True)
+    match_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 'hash', 'path_heuristic', 'ru_registry', 'embedding', 'wikimedia', 'openai', 'catalog', 'admin'
+
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

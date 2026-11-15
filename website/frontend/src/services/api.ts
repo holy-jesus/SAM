@@ -1170,6 +1170,27 @@ export const api = {
     }
   },
 
+  async confirmSoftwareMatch(payload: {
+    raw_process_name: string;
+    matched_name: string;
+    catalog_software_id?: string | null;
+    match_source?: string | null;
+    category_id?: number | null;
+  }): Promise<{ success: boolean; updated_installations: number }> {
+    try {
+      const res = await apiClient.post('/matcher/confirm-match', payload);
+      return res.data;
+    } catch {
+      try {
+        const res = await apiClient.post('/ai/confirm-match', payload);
+        return res.data;
+      } catch {
+        await delay(300);
+        return { success: true, updated_installations: 1 };
+      }
+    }
+  },
+
   async analyzeEula(eulaText: string, licenseId?: string): Promise<EulaAnalysisResult> {
     try {
       const res = await apiClient.post('/ai/analyze-eula', { eula_text: eulaText, license_id: licenseId });

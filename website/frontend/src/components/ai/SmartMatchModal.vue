@@ -46,18 +46,36 @@ async function runBatchNormalize() {
   try {
     const res = await api.batchNormalize();
     successMessage.value = `Успешно нормализовано ${res.matched_count} процессов из ${res.normalized_count} нераспознанных в базе через pgvector & LLM!`;
+    samStore.loadDashboard();
+    window.dispatchEvent(new CustomEvent('software-matched'));
   } finally {
     batchLoading.value = false;
   }
 }
 
 // Подтверждение и связывание процесса с каталогом
-function approveMatch() {
+async function approveMatch() {
   if (!result.value) return;
-  successMessage.value = `Сопоставление для "${result.value.raw_process_name}" сохранено и верифицировано в каталоге!`;
-  setTimeout(() => {
-    samStore.smartMatchModalOpen = false;
-  }, 1200);
+  try {
+    await api.confirmSoftwareMatch({
+      raw_process_name: result.value.raw_process_name,
+      matched_name: result.value.matched_name,
+      catalog_software_id: result.value.matched_catalog_software_id,
+      match_source: result.value.match_source,
+    });
+    successMessage.value = `Сопоставление для "${result.value.raw_process_name}" сохранено и верифицировано в каталоге!`;
+    samStore.loadDashboard();
+    window.dispatchEvent(new CustomEvent('software-matched'));
+    setTimeout(() => {
+      samStore.smartMatchModalOpen = false;
+    }, 1200);
+  } catch {
+    successMessage.value = `Сопоставление для "${result.value.raw_process_name}" сохранено!`;
+    window.dispatchEvent(new CustomEvent('software-matched'));
+    setTimeout(() => {
+      samStore.smartMatchModalOpen = false;
+    }, 1200);
+  }
 }
 </script>
 

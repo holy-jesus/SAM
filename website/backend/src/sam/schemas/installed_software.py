@@ -17,6 +17,8 @@ class InstalledSoftwareResponse(BaseModel):
     source: str = "automatic"
     catalog_software_id: Optional[str] = None
     catalog_software_name: Optional[str] = None
+    normalized_name: Optional[str] = None
+    match_source: Optional[str] = None
     category_id: Optional[int] = None
     category_name: Optional[str] = None
     is_problematic: bool = False

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { api } from '@/services/api';
 import { useSamStore } from '@/stores/sam';
 import { InstalledSoftware, SoftwareCategory, Computer, SoftwareCatalogItem } from '@/types';
@@ -20,6 +20,13 @@ import {
   Clock,
   Plus,
   Tag,
+  Globe,
+  Sparkles,
+  ShieldCheck,
+  Hash,
+  Database,
+  BookOpen,
+  Link2,
 } from 'lucide-vue-next';
 
 const samStore = useSamStore();
@@ -47,7 +54,12 @@ const addForm = ref({
 });
 
 onMounted(async () => {
+  window.addEventListener('software-matched', loadSoftware);
   await Promise.all([loadSoftware(), loadCategories(), loadComputers(), loadCatalog()]);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('software-matched', loadSoftware);
 });
 
 async function loadSoftware() {
@@ -71,14 +83,120 @@ async function loadCatalog() {
   catalog.value = await api.getCatalog();
 }
 
+function getCleanName(item: InstalledSoftware): string {
+  return item.catalog_software_name || item.normalized_name || item.raw_display_name;
+}
+
+function hasCustomCleanName(item: InstalledSoftware): boolean {
+  const clean = getCleanName(item);
+  return clean.toLowerCase().trim() !== item.raw_display_name.toLowerCase().trim();
+}
+
+function getSourceBadge(source?: string | null) {
+  switch (source) {
+    case 'wikimedia':
+      return {
+        label: 'Wikimedia',
+        fullLabel: 'Wikimedia Semantic Search',
+        bg: 'bg-cyan-50',
+        text: 'text-cyan-700',
+        border: 'border-cyan-200',
+        icon: Globe,
+      };
+    case 'ru_registry':
+      return {
+        label: 'Реестр РФ',
+        fullLabel: 'Единый реестр отечественного ПО',
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-700',
+        border: 'border-emerald-200',
+        icon: ShieldCheck,
+      };
+    case 'openai':
+      return {
+        label: 'Нейросеть LLM',
+        fullLabel: 'Нейросетевая нормализация (OpenAI LLM)',
+        bg: 'bg-indigo-50',
+        text: 'text-indigo-700',
+        border: 'border-indigo-200',
+        icon: Sparkles,
+      };
+    case 'hash':
+      return {
+        label: 'SHA-256',
+        fullLabel: 'Контрольная сумма файла SHA-256',
+        bg: 'bg-purple-50',
+        text: 'text-purple-700',
+        border: 'border-purple-200',
+        icon: Hash,
+      };
+    case 'path_heuristic':
+      return {
+        label: 'Эвристика',
+        fullLabel: 'Эвристика пути установки и .exe',
+        bg: 'bg-amber-50',
+        text: 'text-amber-800',
+        border: 'border-amber-200',
+        icon: Laptop,
+      };
+    case 'embedding':
+      return {
+        label: 'pgvector',
+        fullLabel: 'Векторный поиск (pgvector)',
+        bg: 'bg-blue-50',
+        text: 'text-blue-700',
+        border: 'border-blue-200',
+        icon: Database,
+      };
+    case 'process_signatures':
+      return {
+        label: 'База сигнатур',
+        fullLabel: 'Самообучающаяся база сигнатур',
+        bg: 'bg-slate-100',
+        text: 'text-slate-700',
+        border: 'border-slate-300',
+        icon: BookOpen,
+      };
+    case 'admin':
+      return {
+        label: 'Администратор',
+        fullLabel: 'Ручная экспертная верификация',
+        bg: 'bg-teal-50',
+        text: 'text-teal-700',
+        border: 'border-teal-200',
+        icon: CheckCircle2,
+      };
+    case 'catalog':
+    case 'fuzzy_catalog':
+      return {
+        label: 'Каталог ПО',
+        fullLabel: 'Каталог разрешённого ПО',
+        bg: 'bg-slate-100',
+        text: 'text-slate-700',
+        border: 'border-slate-200',
+        icon: BookOpen,
+      };
+    default:
+      return null;
+  }
+}
+
 const filteredSoftware = computed(() => {
   return softwareList.value.filter((item) => {
+    const q = searchQuery.value.toLowerCase().trim();
+    const cleanName = getCleanName(item).toLowerCase();
+    const rawName = item.raw_display_name.toLowerCase();
+    const host = item.computer_hostname?.toLowerCase() || '';
+    const pub = item.raw_publisher?.toLowerCase() || '';
+    const sn = item.computer_serial?.toLowerCase() || '';
+
     const matchSearch =
-      !searchQuery.value ||
-      item.raw_display_name.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      item.computer_hostname?.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      item.raw_publisher?.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-      item.computer_serial?.toLowerCase().includes(searchQuery.value.toLowerCase());
+      !q ||
+      cleanName.includes(q) ||
+      rawName.includes(q) ||
+      host.includes(q) ||
+      pub.includes(q) ||
+      sn.includes(q);
 
     const matchCat =
       categoryFilter.value === 'all' ||
@@ -145,7 +263,7 @@ async function deleteInstalled(item: InstalledSoftware) {
       <div>
         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Установленное ПО на предприятии</h1>
         <p class="text-xs text-slate-500 mt-1">
-          Единый сквозной реестр инсталляций, привязка категорий и контроль неавторизованного софта
+          Единый сквозной реестр инсталляций, распознавание процессов конвейером ИИ, привязка категорий и контроль Shadow IT
         </p>
       </div>
 
@@ -199,23 +317,42 @@ async function deleteInstalled(item: InstalledSoftware) {
           </thead>
           <tbody class="divide-y divide-slate-100">
             <tr v-for="item in filteredSoftware" :key="item.id" class="hover:bg-slate-50/80 transition-colors">
-              <td class="py-3 px-4 font-semibold text-slate-900">
-                <div class="flex items-center gap-2">
-                  <Laptop class="w-4 h-4 text-slate-400 shrink-0" />
-                  <span>{{ item.raw_display_name }}</span>
-                </div>
-                <div v-if="item.install_path" class="text-[10px] text-slate-400 font-mono truncate max-w-xs mt-0.5" :title="item.install_path">
-                  {{ item.install_path }}
+              <!-- Колонка 1: Красивое имя ПО + имя процесса -->
+              <td class="py-3 px-4 text-slate-900">
+                <div class="flex items-start gap-2.5">
+                  <div class="p-1.5 rounded-lg bg-slate-100 text-slate-600 shrink-0 mt-0.5">
+                    <Laptop class="w-4 h-4" />
+                  </div>
+                  <div class="min-w-0">
+                    <div class="font-semibold text-slate-900 text-sm leading-snug">
+                      {{ getCleanName(item) }}
+                    </div>
+                    <div v-if="hasCustomCleanName(item)" class="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500 font-mono">
+                      <span class="text-slate-400 font-sans text-[10px] uppercase font-medium">Процесс:</span>
+                      <span class="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-slate-700 truncate max-w-[220px]" :title="item.raw_display_name">
+                        {{ item.raw_display_name }}
+                      </span>
+                    </div>
+                    <div v-if="item.install_path" class="text-[10px] text-slate-400 font-mono truncate max-w-xs mt-1" :title="item.install_path">
+                      {{ item.install_path }}
+                    </div>
+                  </div>
                 </div>
               </td>
+
+              <!-- Колонка 2: ПК / Серийный номер -->
               <td class="py-3 px-4">
                 <span class="font-mono font-semibold text-slate-800">{{ item.computer_hostname }}</span>
                 <span class="text-[10px] text-slate-400 block font-mono">SN: {{ item.computer_serial }}</span>
               </td>
+
+              <!-- Колонка 3: Издатель и Версия -->
               <td class="py-3 px-4 text-slate-600">
                 <div>{{ item.raw_publisher || '—' }}</div>
                 <div class="text-[11px] font-mono text-slate-500">{{ item.raw_version || '—' }}</div>
               </td>
+
+              <!-- Колонка 4: Категория -->
               <td class="py-3 px-4">
                 <button
                   type="button"
@@ -231,36 +368,93 @@ async function deleteInstalled(item: InstalledSoftware) {
                   </Badge>
                 </button>
               </td>
+
+              <!-- Колонка 5: Каталог / Мэтчинг (Источник конвейера) -->
               <td class="py-3 px-4">
+                <!-- Вариант 1: Связано с эталонным каталогом ПО -->
                 <div v-if="item.catalog_software_name" class="space-y-1">
-                  <div class="flex items-center gap-1.5 text-emerald-700 font-medium">
+                  <div class="flex items-center gap-1.5 text-emerald-700 font-medium text-xs">
                     <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span class="truncate max-w-[150px]" :title="item.catalog_software_name">{{ item.catalog_software_name }}</span>
+                    <span class="truncate max-w-[170px]" :title="item.catalog_software_name">{{ item.catalog_software_name }}</span>
                   </div>
-                  <div v-if="item.is_domestic" class="text-[10px] text-emerald-600 font-normal">
+
+                  <div v-if="getSourceBadge(item.match_source)" class="flex items-center gap-1">
+                    <span
+                      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border"
+                      :class="[getSourceBadge(item.match_source)?.bg, getSourceBadge(item.match_source)?.text, getSourceBadge(item.match_source)?.border]"
+                      :title="getSourceBadge(item.match_source)?.fullLabel"
+                    >
+                      <component :is="getSourceBadge(item.match_source)?.icon" class="w-2.5 h-2.5 shrink-0" />
+                      {{ getSourceBadge(item.match_source)?.label }}
+                    </span>
+                    <span v-if="item.match_confidence" class="text-[10px] text-slate-400 font-mono">
+                      {{ Math.round(item.match_confidence * 100) }}%
+                    </span>
+                  </div>
+
+                  <div v-if="item.is_domestic" class="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                    <ShieldCheck class="w-3 h-3 text-emerald-600" />
                     ПО РФ (Реестр)
                   </div>
-                  <div v-else-if="item.has_substitution" class="text-[10px] text-blue-600 font-normal">
+                  <div v-else-if="item.has_substitution" class="text-[10px] text-blue-600 font-medium">
                     Есть аналог РФ ({{ item.substitutions_count }})
                   </div>
                 </div>
-                <div v-else class="flex items-center gap-1.5 text-indigo-600 text-[11px]">
+
+                <!-- Вариант 2: Распознано через Wikimedia / LLM / Реестр, но пока не привязано к белому списку каталога (Shadow IT) -->
+                <div v-else-if="item.normalized_name" class="space-y-1.5">
+                  <div class="flex items-center gap-1">
+                    <span
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium border"
+                      :class="[
+                        getSourceBadge(item.match_source)?.bg || 'bg-cyan-50',
+                        getSourceBadge(item.match_source)?.text || 'text-cyan-700',
+                        getSourceBadge(item.match_source)?.border || 'border-cyan-200'
+                      ]"
+                      :title="getSourceBadge(item.match_source)?.fullLabel || 'Распознано через внешний сервис'"
+                    >
+                      <component :is="getSourceBadge(item.match_source)?.icon || Globe" class="w-3 h-3 shrink-0" />
+                      <span>{{ getSourceBadge(item.match_source)?.label || 'Распознано' }}:</span>
+                      <strong class="font-semibold truncate max-w-[120px]" :title="item.normalized_name">{{ item.normalized_name }}</strong>
+                    </span>
+                  </div>
+
+                  <div class="flex items-center gap-2 text-[10px]">
+                    <span class="text-amber-600 font-medium">Shadow IT (вне каталога)</span>
+                    <button
+                      type="button"
+                      class="text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                      title="Связать с официальным каталогом компании"
+                      @click="samStore.triggerSmartMatch(item.raw_display_name)"
+                    >
+                      Связать
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Вариант 3: Полностью не распознано -->
+                <div v-else>
                   <button
                     type="button"
-                    class="hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer"
+                    title="Запустить семантический подбор сопоставления через ИИ и конвейер нормализации"
                     @click="samStore.triggerSmartMatch(item.raw_display_name)"
                   >
-                    <Wand2 class="w-3 h-3 text-indigo-600" />
-                    Мэтчинг ИИ
+                    <Wand2 class="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Подобрать сопоставление</span>
                   </button>
                 </div>
               </td>
+
+              <!-- Колонка 6: Последний запуск -->
               <td class="py-3 px-4 text-slate-600 font-mono text-[11px]">
                 <div v-if="item.last_launched_at">
                   {{ new Date(item.last_launched_at).toLocaleDateString('ru-RU') }}
                 </div>
                 <span v-else class="text-slate-400 italic">Не зафиксирован</span>
               </td>
+
+              <!-- Колонка 7: Действия -->
               <td class="py-3 px-4 text-right">
                 <div class="flex items-center justify-end gap-1">
                   <button
@@ -291,7 +485,7 @@ async function deleteInstalled(item: InstalledSoftware) {
     <Modal
       v-model="isCategoryModalOpen"
       title="Назначить категорию ПО"
-      :subtitle="selectedItem?.raw_display_name"
+      :subtitle="selectedItem ? getCleanName(selectedItem) : ''"
       maxWidth="sm"
     >
       <div class="space-y-4">
