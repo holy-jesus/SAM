@@ -1,0 +1,20 @@
+[
+  {
+    "display_name": "Microsoft Office Professional Plus 2021",
+    "publisher": "Microsoft Corporation",
+    "version": "16.0.14332",
+    "install_location": "C:\\Program Files\\Microsoft Office\\root\\Office16"
+  },
+  {
+    "display_name": "7-Zip 19.00 (x64 edition)",
+    "publisher": "Igor Pavlov",
+    "version": "19.00.00.0",
+    "install_location": "C:\\Program Files\\7-Zip"
+  },
+  {
+    "display_name": "МойОфис Стандартный 2",
+    "publisher": "ООО \"НОВЫЕ ОБЛАЧНЫЕ ТЕХНОЛОГИИ\"",
+    "version": "2.4.0",
+    "install_location": "C:\\Program Files\\MyOffice\\Standard"
+  }
+]

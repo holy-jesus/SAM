@@ -1,7 +1,9 @@
 package collector
 
 import (
+	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ type Options struct {
 	Thorough          bool   // Тщательное сканирование: сканирование файловой системы (Program Files, AppData) и вычисление хэшей
 	CustomSerial      string // Ручной оверрайд серийного номера ПК
 	Verbose           bool   // Подробный вывод отладочных сообщений
+	DemoMode          bool   // Демонстрационный режим: подмешивание софта для хакатона
 }
 
 // Collect выполняет полный цикл сбора данных:
@@ -56,6 +59,12 @@ func Collect(opts Options) (*model.ScanReport, error) {
 	installed, err := collectInstalledSoftware(machine.SerialNumber)
 	if err != nil {
 		installed = []model.SoftwareItem{}
+	}
+
+	// Опциональное подмешивание демо-софта (из demo_software.json или при opts.DemoMode)
+	demoItems := loadDemoSoftware(machine.SerialNumber, opts.DemoMode)
+	if len(demoItems) > 0 {
+		installed = mergeSoftwareLists(installed, demoItems)
 	}
 
 	diskFoundCount := 0
@@ -209,4 +218,73 @@ func mergeSoftwareLists(existing, diskItems []model.SoftwareItem) []model.Softwa
 	}
 
 	return existing
+}
+
+// loadDemoSoftware загружает демо-софт из файла demo_software.json либо генерирует типовой набор для хакатона
+func loadDemoSoftware(serialNumber string, forceDemo bool) []model.SoftwareItem {
+	var items []model.SoftwareItem
+
+	// 1. Попытка загрузить из внешнего файла demo_software.json (если он лежит рядом с агентом)
+	candidatePaths := []string{
+		"demo_software.json",
+		"data/demo_software.json",
+		"../data/demo_software.json",
+		"../demo_software.json",
+	}
+
+	for _, p := range candidatePaths {
+		if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
+			var parsed []struct {
+				DisplayName     string `json:"display_name"`
+				Publisher       string `json:"publisher"`
+				Version         string `json:"version"`
+				InstallLocation string `json:"install_location"`
+			}
+			if err := json.Unmarshal(data, &parsed); err == nil && len(parsed) > 0 {
+				for _, it := range parsed {
+					items = append(items, model.SoftwareItem{
+						SerialNumber:    serialNumber,
+						DisplayName:     it.DisplayName,
+						Publisher:       it.Publisher,
+						Version:         it.Version,
+						InstallLocation: it.InstallLocation,
+						Source:          "registry",
+					})
+				}
+				return items
+			}
+		}
+	}
+
+	// 2. Если включен флаг forceDemo (-demo) и файла demo_software.json нет — возвращаем эталонный демо-набор
+	if forceDemo {
+		items = []model.SoftwareItem{
+			{
+				SerialNumber:    serialNumber,
+				DisplayName:     "Microsoft Office Professional Plus 2021",
+				Publisher:       "Microsoft Corporation",
+				Version:         "16.0.14332",
+				InstallLocation: `C:\Program Files\Microsoft Office\root\Office16`,
+				Source:          "registry",
+			},
+			{
+				SerialNumber:    serialNumber,
+				DisplayName:     "7-Zip 19.00 (x64 edition)",
+				Publisher:       "Igor Pavlov",
+				Version:         "19.00.00.0",
+				InstallLocation: `C:\Program Files\7-Zip`,
+				Source:          "registry",
+			},
+			{
+				SerialNumber:    serialNumber,
+				DisplayName:     "МойОфис Стандартный 2",
+				Publisher:       "ООО \"НОВЫЕ ОБЛАЧНЫЕ ТЕХНОЛОГИИ\"",
+				Version:         "2.4.0",
+				InstallLocation: `C:\Program Files\MyOffice\Standard`,
+				Source:          "registry",
+			},
+		}
+	}
+
+	return items
 }

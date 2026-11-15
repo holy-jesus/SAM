@@ -248,6 +248,7 @@ func (d *Daemon) TriggerScan(thorough bool) (*model.ScanReport, error) {
 		Thorough:          thorough,
 		CustomSerial:      d.config.CustomSerial,
 		Verbose:           false,
+		DemoMode:          d.config.DemoMode,
 	}
 
 	report, err := collector.Collect(opts)

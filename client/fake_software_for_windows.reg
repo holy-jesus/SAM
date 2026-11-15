@@ -1,0 +1,19 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\DemoOffice]
+"DisplayName"="Microsoft Office Professional Plus 2021"
+"Publisher"="Microsoft Corporation"
+"DisplayVersion"="16.0.14332"
+"InstallLocation"="C:\\Program Files\\Microsoft Office\\root\\Office16"
+
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\Demo7Zip]
+"DisplayName"="7-Zip 19.00 (x64 edition)"
+"Publisher"="Igor Pavlov"
+"DisplayVersion"="19.00.00.0"
+"InstallLocation"="C:\\Program Files\\7-Zip"
+
+[HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\DemoMyOffice]
+"DisplayName"="МойОфис Стандартный 2"
+"Publisher"="ООО \"НОВЫЕ ОБЛАЧНЫЕ ТЕХНОЛОГИИ\""
+"DisplayVersion"="2.4.0"
+"InstallLocation"="C:\\Program Files\\MyOffice\\Standard"

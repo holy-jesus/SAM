@@ -218,6 +218,7 @@ type AgentConfig struct {
 	EnableDiskScanner         bool   `json:"enable_disk_scanner"`
 	AutoUpload                bool   `json:"auto_upload"`
 	CustomSerial              string `json:"custom_serial,omitempty"`
+	DemoMode                  bool   `json:"demo_mode,omitempty"`
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию

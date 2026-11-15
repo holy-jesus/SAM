@@ -46,6 +46,7 @@ func main() {
 		customSerial     string
 		silent           bool
 		showVersion      bool
+		demoMode         bool
 	)
 
 	// Флаги управления службой и демоном
@@ -54,6 +55,7 @@ func main() {
 	flag.BoolVar(&openGUI, "gui", false, "Открыть локальный графический интерфейс управления в браузере")
 	flag.BoolVar(&triggerUpload, "upload", false, "Выгрузить собранный отчёт на центральный сервер SAM")
 	flag.BoolVar(&thoroughScan, "thorough", false, "Выполнить тщательное сканирование (включая сканирование диска Program Files и хэширование)")
+	flag.BoolVar(&demoMode, "demo", false, "Включить демонстрационный режим (подмешать софт для показа комплаенса, уязвимостей и импортозамещения)")
 
 	// Конфигурационные флаги
 	flag.StringVar(&configPath, "config", "config.json", "Путь к файлу конфигурации JSON")
@@ -83,7 +85,7 @@ func main() {
 	if serviceAction != "" {
 		exePath, _ := os.Executable()
 		err := service.HandleServiceCommand(serviceAction, exePath, func(ctx context.Context) error {
-			cfg := loadOrInitConfig(configPath, serverURL, apiKey, listenAddr, customSerial)
+			cfg := loadOrInitConfig(configPath, serverURL, apiKey, listenAddr, customSerial, demoMode)
 			d := daemon.NewDaemon(cfg, configPath)
 			return d.Run(ctx)
 		})
@@ -113,7 +115,7 @@ func main() {
 
 	// 3. Запуск агента в режиме постоянного фонового демона
 	if isDaemon {
-		cfg := loadOrInitConfig(configPath, serverURL, apiKey, listenAddr, customSerial)
+		cfg := loadOrInitConfig(configPath, serverURL, apiKey, listenAddr, customSerial, demoMode)
 		d := daemon.NewDaemon(cfg, configPath)
 
 		err := service.RunWithGracefulShutdown(func(ctx context.Context) error {
@@ -138,6 +140,7 @@ func main() {
 		Thorough:          thoroughScan,
 		CustomSerial:      customSerial,
 		Verbose:           !silent,
+		DemoMode:          demoMode,
 	}
 
 	report, err := collector.Collect(opts)
@@ -240,7 +243,7 @@ func main() {
 	}
 }
 
-func loadOrInitConfig(path, serverURL, apiKey, listenAddr, customSerial string) model.AgentConfig {
+func loadOrInitConfig(path, serverURL, apiKey, listenAddr, customSerial string, demoMode bool) model.AgentConfig {
 	cfg, err := daemon.LoadConfigFromFile(path)
 	if err != nil {
 		cfg = model.DefaultConfig()
@@ -258,6 +261,9 @@ func loadOrInitConfig(path, serverURL, apiKey, listenAddr, customSerial string) 
 	}
 	if customSerial != "" {
 		cfg.CustomSerial = customSerial
+	}
+	if demoMode {
+		cfg.DemoMode = true
 	}
 
 	return cfg
