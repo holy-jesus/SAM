@@ -933,22 +933,22 @@ async def match_by_openai(
             raise ValueError(f"JSON not found in GigaChat response: {raw_content}")
             
         result = json.loads(match.group(0))
-        matched_cat_name = parsed.get("matched_catalog_name")
+        matched_cat_name = result.get("matched_catalog_name")
 
         cat_item = None
         if matched_cat_name and matched_cat_name not in ("null", "None", ""):
             cat_item = _find_catalog_item_by_name(catalog_items, matched_cat_name, min_score=0.70)
 
-        if not cat_item and parsed.get("official_name"):
-            cat_item = _find_catalog_item_by_name(catalog_items, parsed["official_name"], min_score=0.70)
+        if not cat_item and result.get("official_name"):
+            cat_item = _find_catalog_item_by_name(catalog_items, result["official_name"], min_score=0.70)
 
         # Проверяем совместимость вендора
         if cat_item and publisher and not _catalog_vendor_matches(cat_item, publisher):
             cat_item = None
 
-        conf = float(parsed.get("confidence", 0.80))
-        official_name = parsed.get("official_name", raw_process_name)
-        vendor_name = cat_item.vendor if cat_item else parsed.get("vendor", publisher)
+        conf = float(result.get("confidence", 0.80))
+        official_name = result.get("official_name", raw_process_name)
+        vendor_name = cat_item.vendor if cat_item else result.get("vendor", publisher)
 
         llm_vec = await generate_embedding(f"{raw_process_name} {official_name} {vendor_name or ''}")
 
@@ -972,7 +972,7 @@ async def match_by_openai(
             "category_id": cat_item.category_id if cat_item else None,
             "confidence": conf,
             "match_source": "openai",
-            "reasoning": parsed.get("reasoning") or f"Нейросетевая нормализация OpenAI сопоставила '{raw_process_name}' с '{official_name}'.",
+            "reasoning": result.get("reasoning") or f"Нейросетевая нормализация OpenAI сопоставила '{raw_process_name}' с '{official_name}'.",
         }
     except Exception as e:
         print(f"Notice: OpenAI smart matching failed: {e}")
