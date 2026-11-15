@@ -11,6 +11,10 @@ from sam.schemas.catalog import (
     CatalogItemUpdate,
     CatalogItemResponse,
 )
+from sam.services.substitution_service import (
+    is_official_software_name,
+    enqueue_software_substitution_check,
+)
 
 router = APIRouter(prefix="/catalog", tags=["Software Catalog"])
 
@@ -53,6 +57,18 @@ def _serialize_catalog_item(item: SoftwareCatalog) -> dict:
             "color_hex": item.category.color_hex,
         }
 
+    is_domestic = bool(item.ru_registry_id or item.ru_registry)
+    has_sub = item.has_substitution
+    sub_count = item.substitutions_count or 0
+    if is_domestic:
+        sub_status = "domestic"
+    elif has_sub is True:
+        sub_status = "has_substitutes"
+    elif has_sub is False:
+        sub_status = "no_substitutes"
+    else:
+        sub_status = "pending"
+
     return {
         "id": str(item.id),
         "name": item.name,
@@ -66,6 +82,10 @@ def _serialize_catalog_item(item: SoftwareCatalog) -> dict:
         "responsible_person": item.responsible_person,
         "approval_status": item.approval_status,
         "active_installations_count": len(item.installations) if item.installations else 0,
+        "has_substitution": has_sub,
+        "substitutions_count": sub_count,
+        "is_domestic": is_domestic,
+        "substitution_status": sub_status,
         "classifier": classifier,
         "ru_registry": ru_reg,
         "category": cat,
@@ -98,6 +118,12 @@ async def create_catalog_item(payload: CatalogItemCreate, db: AsyncSession = Dep
     db.add(item)
     await db.commit()
     await db.refresh(item)
+
+    # Автоматическая постановка в очередь на проверку импортозамещения для нового ПО,
+    # если это официальное название и его нет в Едином реестре РФ
+    if not item.ru_registry_id and is_official_software_name(item.name):
+        enqueue_software_substitution_check(item.name, catalog_software_id=item.id)
+
     return _serialize_catalog_item(item)
 
 

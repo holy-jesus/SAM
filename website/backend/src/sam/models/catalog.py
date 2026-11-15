@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, func
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sam.db import Base, Vector
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from sam.models.category import SoftwareCategory
     from sam.models.license import License
     from sam.models.installed_software import InstalledSoftware
+    from sam.models.substitution import ImportSubstitution
 
 
 class SoftwareCatalog(Base):
@@ -39,6 +40,8 @@ class SoftwareCatalog(Base):
     responsible_person: Mapped[str] = mapped_column(String(255), default="Администратор SAM", nullable=False)
     approval_status: Mapped[str] = mapped_column(String(50), default="approved", nullable=False)
     embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
+    has_substitution: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=None)
+    substitutions_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -55,4 +58,7 @@ class SoftwareCatalog(Base):
     )
     installations: Mapped[List["InstalledSoftware"]] = relationship(
         "InstalledSoftware", back_populates="catalog_software", lazy="selectin"
+    )
+    substitutions: Mapped[List["ImportSubstitution"]] = relationship(
+        "ImportSubstitution", back_populates="catalog_software", cascade="all, delete-orphan", lazy="selectin"
     )

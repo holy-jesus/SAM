@@ -23,6 +23,9 @@ class InstalledSoftwareResponse(BaseModel):
     match_confidence: float = 0.0
     is_verified_by_admin: bool = False
     is_deleted: bool = False
+    has_substitution: Optional[bool] = None
+    substitutions_count: int = 0
+    is_domestic: bool = False
     first_seen_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
 

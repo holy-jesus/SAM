@@ -43,9 +43,9 @@ async def seed_database_if_empty(db: AsyncSession):
             db.add(c)
         await db.commit()
 
-    # 2. Классификатор ПО (из файла data/Пример ПО.xlsx)
+    # 2. Классификатор ПО (из ru-ikt.ru и data/Единый реестр российского ПО.xlsx)
     cls_count = await db.execute(select(func.count(SoftwareClassifier.id)))
-    if cls_count.scalar_one() == 0:
+    if cls_count.scalar_one() < 100:
         await sync_software_classifiers(db)
 
     # 3. Единый реестр российского ПО (из data/Единый реестр российского ПО.xlsx)

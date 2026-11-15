@@ -207,6 +207,7 @@ async function deleteItem(id: string) {
           <thead>
             <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
               <th class="py-3 px-4">Наименование ПО и вендор</th>
+              <th class="py-3 px-4">Импортозамещение РФ</th>
               <th class="py-3 px-4">Тип лицензии</th>
               <th class="py-3 px-4 text-center">Доступно мест (Лимит)</th>
               <th class="py-3 px-4 text-center">Фактически уст.</th>
@@ -224,6 +225,33 @@ async function deleteItem(id: string) {
                 </div>
                 <div class="text-[11px] text-slate-500 font-normal mt-0.5">
                   {{ item.vendor }}
+                </div>
+              </td>
+              <td class="py-3 px-4">
+                <div v-if="item.is_domestic || item.ru_registry_id" class="flex items-center gap-1">
+                  <Badge variant="success" size="sm" title="ПО зарегистрировано в Едином реестре российских программ">
+                    В реестре РФ
+                  </Badge>
+                </div>
+                <div v-else-if="item.has_substitution" class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    class="cursor-pointer"
+                    title="Нажмите, чтобы просмотреть российские аналоги"
+                    @click="openSubstitutions(item)"
+                  >
+                    <Badge variant="info" size="sm">
+                      Есть аналог РФ ({{ item.substitutions_count }})
+                    </Badge>
+                  </button>
+                </div>
+                <div v-else-if="item.has_substitution === false" class="flex items-center gap-1">
+                  <Badge variant="default" size="sm" title="Проверено в Минцифры: отечественных аналогов не найдено">
+                    Нет в реестре РФ
+                  </Badge>
+                </div>
+                <div v-else class="text-[10px] text-slate-400 italic">
+                  Проверка...
                 </div>
               </td>
               <td class="py-3 px-4">

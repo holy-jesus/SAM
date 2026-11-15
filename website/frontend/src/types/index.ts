@@ -98,6 +98,10 @@ export interface SoftwareCatalogItem {
   active_installations_count?: number;
   responsible_person?: string;
   approval_status?: 'approved' | 'review' | 'rejected';
+  has_substitution?: boolean | null;
+  substitutions_count?: number;
+  is_domestic?: boolean;
+  substitution_status?: 'domestic' | 'has_substitutes' | 'no_substitutes' | 'pending' | 'error';
   created_at?: string;
   updated_at?: string;
 }
@@ -142,6 +146,9 @@ export interface InstalledSoftware {
   match_confidence: number;
   is_verified_by_admin: boolean;
   is_deleted: boolean;
+  has_substitution?: boolean | null;
+  substitutions_count?: number;
+  is_domestic?: boolean;
   first_seen_at?: string;
   last_seen_at?: string;
 }

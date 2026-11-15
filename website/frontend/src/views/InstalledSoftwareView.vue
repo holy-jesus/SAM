@@ -232,9 +232,17 @@ async function deleteInstalled(item: InstalledSoftware) {
                 </button>
               </td>
               <td class="py-3 px-4">
-                <div v-if="item.catalog_software_name" class="flex items-center gap-1.5 text-emerald-700 font-medium">
-                  <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span class="truncate max-w-[150px]" :title="item.catalog_software_name">{{ item.catalog_software_name }}</span>
+                <div v-if="item.catalog_software_name" class="space-y-1">
+                  <div class="flex items-center gap-1.5 text-emerald-700 font-medium">
+                    <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span class="truncate max-w-[150px]" :title="item.catalog_software_name">{{ item.catalog_software_name }}</span>
+                  </div>
+                  <div v-if="item.is_domestic" class="text-[10px] text-emerald-600 font-normal">
+                    ПО РФ (Реестр)
+                  </div>
+                  <div v-else-if="item.has_substitution" class="text-[10px] text-blue-600 font-normal">
+                    Есть аналог РФ ({{ item.substitutions_count }})
+                  </div>
                 </div>
                 <div v-else class="flex items-center gap-1.5 text-indigo-600 text-[11px]">
                   <button

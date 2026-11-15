@@ -19,6 +19,8 @@ services:
   backend:
     build: ./backend
     restart: always
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://sam_user:sam_password@db:5432/sam_db
       SECRET_KEY: sam_secret_jwt_key_enterprise

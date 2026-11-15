@@ -12,6 +12,10 @@ from sam.schemas.ai import (
 )
 from sam.services.matcher import match_raw_process_to_catalog
 from sam.services.compliance_engine import recalculate_compliance_alerts
+from sam.services.substitution_service import (
+    enqueue_software_substitution_check,
+    is_official_software_name,
+)
 
 router = APIRouter(prefix="/matcher", tags=["Software Matcher"])
 
@@ -70,6 +74,13 @@ async def batch_normalize(db: AsyncSession = Depends(get_db)):
             item.match_confidence = conf
             item.is_verified_by_admin = conf >= 0.90
             matched_count += 1
+
+            matched_name = match_res.get("matched_name") or item.raw_display_name
+            if match_res.get("match_source") != "ru_registry" and is_official_software_name(matched_name):
+                enqueue_software_substitution_check(
+                    matched_name,
+                    catalog_software_id=uuid.UUID(cat_id),
+                )
 
     await db.commit()
     await recalculate_compliance_alerts(db)

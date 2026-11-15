@@ -96,14 +96,14 @@ CREATE TABLE software_categories (
 ```
 
 ### 2.5. Таблица `software_classifiers` (Классификатор классов ПО РФ)
-Справочник классов ПО в соответствии с https://ru-ikt.ru/reestrpo и `data/Пример ПО.xlsx`.
+Официальный справочник классов ПО в соответствии с Приказом Минцифры России № 486 от 22.09.2020, порталом https://ru-ikt.ru/reestrpo и Единым реестром отечественного ПО (`data/Единый реестр российского ПО.xlsx`). Включает полную иерархию 12 разделов и 159+ классов программного обеспечения.
 ```sql
 CREATE TABLE software_classifiers (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(50) UNIQUE NOT NULL,    -- например: '04.03', '03.11'
-    section_code VARCHAR(20) NOT NULL,   -- например: '04'
+    code VARCHAR(50) UNIQUE NOT NULL,    -- например: '04.03', '03.11', '01.01'
+    section_code VARCHAR(20) NOT NULL,   -- например: '01'..'12'
     section_name VARCHAR(255) NOT NULL,  -- '04 - Средства разработки программного обеспечения'
-    class_name VARCHAR(255) NOT NULL     -- '04.03 - Библиотеки подпрограмм (SDK)'
+    class_name TEXT NOT NULL             -- '04.03 - Библиотеки подпрограмм (SDK)'
 );
 ```
 
@@ -121,7 +121,7 @@ CREATE TABLE ru_software_registry (
     documentation_url TEXT,
     is_ai BOOLEAN DEFAULT FALSE,            -- Относится к ИИ
     excluded_at DATE,                       -- Дата исключения (если исключено)
-    embedding vector(384),                  -- Вектор названия ПО для семантического поиска
+    embedding vector(1536),                 -- Вектор названия ПО для семантического поиска (OpenAI text-embedding-3-small)
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX idx_ru_registry_name ON ru_software_registry(name);
@@ -141,6 +141,8 @@ CREATE TABLE software_catalog (
     category_id INTEGER REFERENCES software_categories(id),
     license_type VARCHAR(50) NOT NULL,      -- 'Commercial', 'Open Source', 'Freeware', 'Trial'
     max_installations INTEGER DEFAULT 0,    -- 0 = без ограничений (open source)
+    has_substitution BOOLEAN,               -- Флаг наличия рекомендованных отечественных аналогов в РФ
+    substitutions_count INTEGER DEFAULT 0,  -- Количество найденных аналогов
     embedding vector(384),                  -- Векторное представление для умного мэтчинга процессов
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -338,10 +340,25 @@ CREATE TABLE import_history (
 * `DELETE /categories/{id}` — удалить
 
 ### 3.9. Классификатор и Единый реестр отечественного ПО (`/classifiers`, `/registry`)
-* `GET /classifiers` — иерархический список разделов и классов ПО
+* `GET /classifiers` (Query: `search`, `section_code`) — полный иерархический список разделов и классов ПО (12 разделов, 159+ классов)
+* `POST /classifiers/sync` — ручной запуск синхронизации справочника классификаторов из `ru-ikt.ru/reestrpo` и `data/Единый реестр российского ПО.xlsx`.
+  * Ответ:
+    ```json
+    {
+      "success": true,
+      "message": "Справочник классификаторов успешно синхронизирован: доступно 159 классов...",
+      "total": 159,
+      "added": 0,
+      "updated": 0,
+      "sources": [
+        "https://ru-ikt.ru/reestrpo",
+        "data/Единый реестр российского ПО.xlsx"
+      ]
+    }
+    ```
 * `GET /registry` (Query: `search`, `class_code`, `page`, `limit`) — поиск по Единому реестру РФ
 * `GET /registry/status` — дата последнего обновления, общее количество записей
-* `POST /registry/sync` — ручной запуск обновления реестра с `reestr.digital.gov.ru`
+* `POST /registry/sync` — ручной запуск обновления реестра с `reestr.digital.gov.ru` / `data/Единый реестр российского ПО.xlsx`
 
 ### 3.10. Коннектор агента и Импорт дампов (`/connector`)
 * `POST /connector/agent/register`
@@ -559,9 +576,11 @@ CREATE INDEX idx_proc_sig_embedding ON process_signatures USING ivfflat (embeddi
 
 ---
 
-### 4.7. Модуль импортозамещения ПО (`reestr.digital.gov.ru` & HAR-парсер)
+### 4.7. Модуль импортозамещения ПО (`reestr.digital.gov.ru`, HAR-парсер, Rate Limiting и Кэширование)
 
-#### Таблица `import_substitutions`
+Модуль решает задачу автоматического выявления и подбора отечественных аналогов для используемого в компании зарубежного программного обеспечения на основе официального сервиса Минцифры России (`https://reestr.digital.gov.ru/import-substitution/`) и каталога АРПП «Отечественный софт».
+
+#### 4.7.1. Таблица `import_substitutions` (Отечественные аналоги ПО)
 Хранит соответствия между зарубежным ПО и рекомендованными отечественными аналогами (из сервиса Минцифры и каталога АРПП «Отечественный софт»).
 ```sql
 CREATE TABLE import_substitutions (
@@ -585,11 +604,63 @@ CREATE INDEX idx_subs_russian ON import_substitutions(russian_software_name);
 CREATE INDEX idx_subs_reg_num ON import_substitutions(russian_reg_number);
 ```
 
-#### API Эндпоинты импортозамещения
-* `GET /api/v1/substitution/search?query=Photoshop` — поиск аналогов для зарубежного продукта (ищет в БД, при необходимости воспроизводит HTTP-запрос браузера на `reestr.digital.gov.ru/import-substitution/`, парсит HTML и кэширует в БД).
+#### 4.7.2. Таблица `substitution_cache` (Кэш проверок с TTL для защиты от DDoS)
+Хранит результаты проверки статуса импортозамещения для каждого уникального распознанного продукта. Предотвращает повторные сетевые запросы для продуктов, у которых аналогов нет или они уже были найдены.
+```sql
+CREATE TABLE substitution_cache (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    software_name VARCHAR(255) UNIQUE NOT NULL,     -- Нормализованное имя ПО в нижнем регистре
+    has_substitution BOOLEAN DEFAULT FALSE NOT NULL,-- Флаг: найдены ли отечественные аналоги в РФ
+    substitutions_count INTEGER DEFAULT 0 NOT NULL, -- Количество рекомендованных аналогов
+    is_domestic BOOLEAN DEFAULT FALSE NOT NULL,     -- Флаг: входит ли само ПО в Единый реестр РФ
+    status VARCHAR(50) DEFAULT 'checked' NOT NULL,  -- 'checked', 'domestic', 'not_found', 'error'
+    catalog_software_id UUID REFERENCES software_catalog(id) ON DELETE SET NULL,
+    last_checked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,   -- Срок действия кэша (TTL)
+    error_message TEXT
+);
+
+CREATE INDEX idx_sub_cache_software_name ON substitution_cache(software_name);
+CREATE INDEX idx_sub_cache_catalog_id ON substitution_cache(catalog_software_id);
+CREATE INDEX idx_sub_cache_expires_at ON substitution_cache(expires_at);
+```
+
+#### 4.7.3. Политика кэширования и сроки жизни (TTL)
+* **Зарубежное ПО с найденными аналогами / без аналогов**: кэшируется на **14 дней** (`CACHE_TTL_DAYS = 14`). Повторные обращения и загрузка страниц каталога берут данные из локальной БД мгновенно (0 мс) без сетевых запросов.
+* **Отечественное ПО (из Единого реестра РФ)**: кэшируется на **30 дней** со статусом `domestic` (`is_domestic = True`, `has_substitution = False`). Поиск аналогов исключён, так как продукт уже отечественный.
+* **Сетевые ошибки / таймаут сервиса**: кэшируется на **1 день** (`ttl_days = 1`) для исключения шторма повторных запросов при временной недоступности Минцифры.
+
+#### 4.7.4. Механизм защиты от DDoS и Rate Limiting (`SubstitutionRateLimiter`)
+Для исключения блокировок (HTTP 429 Too Many Requests, Cloudflare/WAF, капча) сервис оснащён компонентом контроля частоты запросов:
+1. **Строгая последовательность запросов (Mutex Lock)**: `asyncio.Lock` гарантирует, что запросы к `reestr.digital.gov.ru` не выполняются параллельно.
+2. **Интервал между сетевыми вызовами**: фиксированная задержка не менее **1.5 секунды** между любыми последовательными HTTP-запросами к внешнему серверу.
+3. **Экспоненциальный откат (Backoff)**: при получении HTTP 429 или разрыве соединения задержка автоматически увеличивается на 5–10 секунд, защищая внешнюю инфраструктуру.
+4. **Неблокирующий вызов в пуле потоков**: блокирующие вызовы библиотеки `requests` выполняются через `asyncio.get_running_loop().run_in_executor(None, ...)`, не блокируя событийный цикл FastAPI.
+
+#### 4.7.5. Автоматический конвейер проверки нового ПО (Pipeline)
+При добавлении нового ПО (через форму каталога `POST /api/v1/catalog`, импорт дампа агента `POST /api/v1/connector/agent/report` или `POST /api/v1/matcher/batch-normalize`):
+1. **Фильтрация официальных названий (`is_official_software_name`)**: сырые имена процессов (`setup.exe`, `unins000.exe`, `svchost.exe`, бинарники без нормализации) отсекаются. Проверяются только распознанные официальные имена (например, `Adobe Photoshop`, `Docker Desktop`, `Zoom`).
+2. **Проверка Единого реестра РФ (`check_is_in_ru_registry`)**: выполняется поиск в таблице `ru_software_registry` (по точному совпадению, синонимам и границам слов) и проверка `catalog_software.ru_registry_id`. Если софт отечественный — он помечается `is_domestic = True`, и запрос к сервису импортозамещения **не выполняется**.
+3. **Проверка кэша в БД (`get_cached_substitution_status`)**: если запись в `substitution_cache` существует и `expires_at > NOW()`, результат возвращается из кэша без сетевого обращения.
+4. **Асинхронная очередь задач (`_substitution_queue`) с дедупликацией**: новое зарубежное ПО ставится в фоновую очередь. Повторные добавления того же ПО во время обработки блокируются сетом `_enqueued_names`.
+5. **Фоновый воркер (`substitution_queue_worker`)**: непрерывно обрабатывает очередь с задержкой 1.5 секунды, парсит карточки аналогов Минцифры, сохраняет их в `import_substitutions` и обновляет `substitution_cache` и поля `has_substitution`, `substitutions_count` в `software_catalog`.
+
+#### 4.7.6. API Эндпоинты импортозамещения
+* `GET /api/v1/substitution/search?query=Photoshop&force_fetch=false` — поиск аналогов для продукта (проверяет статус в реестре РФ, локальный кэш `substitution_cache`, при необходимости делает rate-limited сетевой запрос и сохраняет в БД).
 * `GET /api/v1/substitution/suggestions?query=Photo` — автодополнение названий ПО через Bitrix AJAX эндпоинт `reestr.digital.gov.ru`.
 * `GET /api/v1/substitution/catalog/{catalog_software_id}` — подбор российских аналогов для позиции корпоративного каталога ПО.
-* `POST /api/v1/substitution/fetch-online?query=Photoshop` — прямой вызов онлайн-парсинга страницы `reestr.digital.gov.ru/import-substitution/?query=...` с сохранением аналогов в базу.
+* `POST /api/v1/substitution/fetch-online?query=Photoshop` — прямой запуск rate-limited онлайн-проверки и сохранения аналогов с обновлением кэша в БД.
+* `GET /api/v1/substitution/status/{software_name}` — моментальное получение статуса импортозамещения ПО (`domestic`, `checked`, `not_found`, `not_checked`) и срока действия кэша.
+* `POST /api/v1/substitution/scan-catalog` — постановка всех непроверенных позиций зарубежного ПО из каталога в очередь фоновой проверки.
+* `GET /api/v1/substitution/cache?limit=100` — список закэшированных проверок импортозамещения из таблицы `substitution_cache`.
+
+#### 4.7.7. Отображение статуса импортозамещения в интерфейсе
+* **Каталог ПО (`SoftwareCatalogView`)**: в таблице выведена отдельная колонка «Импортозамещение РФ»:
+  * **В реестре РФ** (зелёный бэдж) — для отечественного софта;
+  * **Есть аналог РФ (N)** (синий бэдж с кнопкой открытия модального окна) — для зарубежного софта с найденными аналогами;
+  * **Нет в реестре РФ** (серый бэдж) — проверено, аналогов не зарегистрировано;
+  * **Проверка...** — находится в очереди обработки.
+* **Установленное ПО (`InstalledSoftwareView`)**: в столбце мэтчинга отображаются подписи `ПО РФ (Реестр)` или `Есть аналог РФ (N)` для моментального визуального контроля комплаенса.
 
 ---
 

@@ -39,6 +39,10 @@ class CatalogItemUpdate(BaseModel):
 class CatalogItemResponse(CatalogItemBase):
     id: str
     active_installations_count: int = 0
+    has_substitution: Optional[bool] = None
+    substitutions_count: int = 0
+    is_domestic: bool = False
+    substitution_status: Optional[str] = None
     classifier: Optional[ClassifierResponse] = None
     ru_registry: Optional[RuSoftwareRegistryResponse] = None
     category: Optional[CategoryResponse] = None

@@ -31,3 +31,27 @@ class SubstitutionSyncResponse(BaseModel):
     success: bool
     imported_count: int
     message: str
+
+
+class SubstitutionStatusResponse(BaseModel):
+    software_name: str
+    status: str
+    has_substitution: bool = False
+    substitutions_count: int = 0
+    is_domestic: bool = False
+    last_checked_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    message: Optional[str] = None
+
+
+class SubstitutionCacheItemResponse(BaseModel):
+    id: str
+    software_name: str
+    has_substitution: bool
+    substitutions_count: int
+    is_domestic: bool
+    status: str
+    catalog_software_id: Optional[str] = None
+    last_checked_at: datetime
+    expires_at: datetime
+    error_message: Optional[str] = None

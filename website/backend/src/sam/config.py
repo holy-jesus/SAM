@@ -30,9 +30,9 @@ class Settings(BaseSettings):
 
     # OpenAI / LLM
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.giga.chat/v1")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "GigaChat-3-Ultra")
+    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "EmbeddingsGigaR")
     EMBEDDING_DIM: int = 1536
 
     # CORS

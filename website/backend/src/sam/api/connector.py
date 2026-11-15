@@ -20,6 +20,10 @@ from sam.schemas.connector import (
 from sam.services.matcher import match_raw_process_to_catalog
 from sam.services.dump_parser import parse_dump_file
 from sam.services.compliance_engine import recalculate_compliance_alerts
+from sam.services.substitution_service import (
+    enqueue_software_substitution_check,
+    is_official_software_name,
+)
 
 router = APIRouter(prefix="/connector", tags=["Agent Connector & Dump Import"])
 
@@ -190,6 +194,14 @@ async def receive_agent_report(payload: AgentReportRequest, db: AsyncSession = D
         if conf >= 0.70:
             matched_count += 1
 
+        # Автоматическая очередь проверки импортозамещения для распознанного зарубежного ПО
+        matched_official = match_res.get("matched_name") or sw.display_name
+        if match_res.get("match_source") != "ru_registry" and is_official_software_name(matched_official):
+            enqueue_software_substitution_check(
+                matched_official,
+                catalog_software_id=uuid.UUID(cat_id) if cat_id else None,
+            )
+
         # Check existing install
         existing_inst_res = await db.execute(
             select(InstalledSoftware).where(
@@ -356,6 +368,14 @@ async def upload_dump_file(
         conf = match_res.get("confidence", 0.0)
         if conf >= 0.70:
             matched_automatically += 1
+
+        # Автоматическая очередь проверки импортозамещения для распознанного зарубежного ПО
+        matched_official = match_res.get("matched_name") or display_name
+        if match_res.get("match_source") != "ru_registry" and is_official_software_name(matched_official):
+            enqueue_software_substitution_check(
+                matched_official,
+                catalog_software_id=uuid.UUID(cat_id) if cat_id else None,
+            )
 
         inst = InstalledSoftware(
             computer_id=comp.id,

@@ -594,13 +594,29 @@ export const api = {
   },
 
   // === Классификатор и Единый реестр отечественного ПО ===
-  async getClassifiers(): Promise<SoftwareClassifier[]> {
+  async getClassifiers(params?: { search?: string; section_code?: string }): Promise<SoftwareClassifier[]> {
     try {
-      const res = await apiClient.get('/classifiers');
+      const res = await apiClient.get('/classifiers', { params });
       return res.data;
     } catch {
       await delay();
       return mock.mockClassifiers;
+    }
+  },
+
+  async syncClassifiers(): Promise<{ success: boolean; message: string; total?: number; added?: number; updated?: number }> {
+    try {
+      const res = await apiClient.post('/classifiers/sync');
+      return res.data;
+    } catch {
+      await delay(800);
+      return {
+        success: true,
+        message: 'Классификатор ПО успешно синхронизирован с Единым реестром ПО',
+        total: mock.mockClassifiers.length,
+        added: 0,
+        updated: 0,
+      };
     }
   },
 

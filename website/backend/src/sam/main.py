@@ -5,6 +5,11 @@ from sam.config import settings
 from sam.db import init_db, AsyncSessionLocal
 from sam.api import api_router
 from sam.init_data import seed_database_if_empty
+from sam.services.substitution_service import (
+    start_substitution_worker,
+    stop_substitution_worker,
+    scan_and_queue_unprocessed_catalog,
+)
 
 
 @asynccontextmanager
@@ -25,10 +30,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[!] Ошибка загрузки начальных данных: {e}")
 
+    # 3. Запуск фонового воркера проверки импортозамещения с rate-limit
+    start_substitution_worker()
+    try:
+        async with AsyncSessionLocal() as session:
+            enqueued = await scan_and_queue_unprocessed_catalog(session)
+            if enqueued > 0:
+                print(f"[+] Поставлено в очередь фоновой проверки импортозамещения: {enqueued} позиций.")
+    except Exception as e:
+        print(f"Notice: Initial catalog substitution scan: {e}")
+
     yield
 
-    # Shutdown logic if needed
+    # Shutdown logic
     print("[*] Остановка сервиса SAM Backend...")
+    stop_substitution_worker()
 
 
 app = FastAPI(

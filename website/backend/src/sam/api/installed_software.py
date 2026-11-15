@@ -19,6 +19,10 @@ def _serialize_installed(s: InstalledSoftware) -> dict:
     cat_sw = s.catalog_software
     category = s.category
 
+    is_domestic = bool(cat_sw and (cat_sw.ru_registry_id or getattr(cat_sw, "ru_registry", None)))
+    has_sub = cat_sw.has_substitution if cat_sw else None
+    sub_count = cat_sw.substitutions_count if cat_sw else 0
+
     return {
         "id": str(s.id),
         "computer_id": str(s.computer_id),
@@ -39,6 +43,9 @@ def _serialize_installed(s: InstalledSoftware) -> dict:
         "match_confidence": s.match_confidence,
         "is_verified_by_admin": s.is_verified_by_admin,
         "is_deleted": s.is_deleted,
+        "has_substitution": has_sub,
+        "substitutions_count": sub_count,
+        "is_domestic": is_domestic,
         "first_seen_at": s.first_seen_at,
         "last_seen_at": s.last_seen_at,
     }

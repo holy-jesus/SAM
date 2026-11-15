@@ -10,7 +10,7 @@ from sam.models.installed_software import InstalledSoftware
 from sam.models.compliance import ComplianceAlert
 from sam.models.import_history import ImportHistory
 from sam.models.process_signature import ProcessSignature
-from sam.models.substitution import ImportSubstitution
+from sam.models.substitution import ImportSubstitution, SubstitutionCache
 from sam.models.vulnerability import Vulnerability
 
 __all__ = [
@@ -27,5 +27,6 @@ __all__ = [
     "ImportHistory",
     "ProcessSignature",
     "ImportSubstitution",
+    "SubstitutionCache",
     "Vulnerability",
 ]
