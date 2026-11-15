@@ -104,7 +104,7 @@ async function handleInit() {
       </form>
 
       <div class="text-center pt-2 border-t border-slate-100 text-[11px] text-slate-400">
-        SAM Enterprise Platform • Безопасное хранение хэшей bcrypt
+        Где ПО, SAM?
       </div>
     </div>
   </div>

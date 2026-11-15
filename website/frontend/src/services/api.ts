@@ -902,10 +902,10 @@ export const api = {
       const newItem: ImportHistoryItem = {
         id: 'imp-' + Date.now().toString(36),
         filename: file.name,
-        total_rows: 142,
-        computers_affected: 8,
-        software_rows_imported: 142,
-        matched_automatically: 138,
+        total_rows: 0,
+        computers_affected: 0,
+        software_rows_imported: 0,
+        matched_automatically: 0,
         status: 'success',
         created_at: new Date().toISOString(),
       };

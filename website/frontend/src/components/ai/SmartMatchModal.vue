@@ -96,7 +96,7 @@ function approveMatch() {
             :variant="result.confidence >= 0.9 ? 'success' : result.confidence >= 0.75 ? 'warning' : 'destructive'"
             size="md"
           >
-            Уверенность ИИ: {{ Math.round(result.confidence * 100) }}%
+            Уверенность системы: {{ Math.round(result.confidence * 100) }}%
           </Badge>
         </div>
 
@@ -128,7 +128,7 @@ function approveMatch() {
               }}
             </span>
           </p>
-          <p><span class="font-medium text-slate-700">Обоснование ИИ:</span> {{ result.reasoning }}</p>
+          <p><span class="font-medium text-slate-700">Обоснование системы:</span> {{ result.reasoning }}</p>
         </div>
 
         <div class="flex items-center justify-end gap-2 pt-2 border-t border-blue-100">

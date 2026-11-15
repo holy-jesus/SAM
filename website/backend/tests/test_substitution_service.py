@@ -238,6 +238,49 @@ async def test_queue_and_deduplication():
     print("PASS: Queue deduplication and validation successfully prevented duplicate/invalid checks.")
 
 
+async def test_save_substitution_items_long_class_and_owner():
+    print("--- 8. Testing save_substitution_items_to_db with long class names and multi-codes ---")
+    from sam.services.substitution_service import save_substitution_items_to_db
+
+    db = AsyncMock()
+    # Mock no existing substitution so it inserts
+    db.execute.return_value = MockResult(None)
+
+    long_class_name = (
+        "Средства анализа исходного кода на закладки и уязвимости Серверное и связующее программное обеспечение "
+        "Средства мониторинга и управления Среды разработки, тестирования и отладки Средства централизованного "
+        "управления конечными устройствами Средства интеллектуального анализа данных (Data Mining) Средства поддержки принятия решений (DSS)"
+    )
+    long_class_code = "04.05 02.06 02.08 04.04 06.02 09.10 09.14 11.04 11.05"
+    long_owner = "ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ \"НАУЧНО-ПРОИЗВОДСТВЕННОЕ ПРЕДПРИЯТИЕ ИНРИС-САФИБ\""
+
+    items = [
+        {
+            "foreign_software_name": "AnyDesk",
+            "russian_software_name": "Система удаленного мониторинга и управления «Ассистент» с динамическим анализатором программного кода «Дикод»",
+            "russian_reg_number": "24668",
+            "source": "registry",
+            "owner_name": long_owner,
+            "class_code": long_class_code,
+            "class_name": long_class_name,
+            "registration_date": "15.11.2024",
+            "registry_url": "https://reestr.digital.gov.ru/reestr/2804326/",
+        }
+    ]
+
+    added = await save_substitution_items_to_db(db, items)
+    assert added == 1
+    assert db.add.called
+    added_obj = db.add.call_args[0][0]
+    assert isinstance(added_obj, ImportSubstitution)
+    assert added_obj.class_name == long_class_name
+    assert added_obj.class_code == long_class_code
+    assert added_obj.owner_name == long_owner
+    assert db.commit.called
+
+    print("PASS: Long class names and multi-code substitution records successfully processed without truncation errors.")
+
+
 async def main():
     print("==================================================")
     print("Running Substitution Service & Rate Limiting Tests")
@@ -249,6 +292,7 @@ async def main():
     await test_process_software_substitution_domestic()
     await test_process_software_substitution_foreign_with_caching()
     await test_queue_and_deduplication()
+    await test_save_substitution_items_long_class_and_owner()
     print("==================================================")
     print("ALL SUBSTITUTION SERVICE TESTS PASSED SUCCESSFULLY!")
     print("==================================================")

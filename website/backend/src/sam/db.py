@@ -137,6 +137,22 @@ async def init_db():
                             ALTER TABLE software_classifiers ALTER COLUMN class_name TYPE TEXT;
                             ALTER TABLE software_classifiers ALTER COLUMN section_name TYPE TEXT;
                         END IF;
+
+                        -- Расширение колонок import_substitutions для длинных составных классов и правообладателей
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'import_substitutions') THEN
+                            ALTER TABLE import_substitutions ALTER COLUMN class_name TYPE TEXT;
+                            ALTER TABLE import_substitutions ALTER COLUMN class_code TYPE TEXT;
+                            ALTER TABLE import_substitutions ALTER COLUMN owner_name TYPE TEXT;
+                            ALTER TABLE import_substitutions ALTER COLUMN foreign_software_name TYPE TEXT;
+                            ALTER TABLE import_substitutions ALTER COLUMN russian_software_name TYPE TEXT;
+                            ALTER TABLE import_substitutions ALTER COLUMN russian_reg_number TYPE VARCHAR(100);
+                            ALTER TABLE import_substitutions ALTER COLUMN registration_date TYPE VARCHAR(100);
+                        END IF;
+
+                        -- Расширение колонок substitution_cache
+                        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'substitution_cache') THEN
+                            ALTER TABLE substitution_cache ALTER COLUMN software_name TYPE TEXT;
+                        END IF;
                     END $$;
                 """))
             except Exception as e:

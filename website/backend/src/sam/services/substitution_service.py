@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from typing import List, Dict, Any, Optional, Tuple
 import requests
-from sqlalchemy import select, or_, and_, func
+from sqlalchemy import select, or_, and_, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sam.models.substitution import ImportSubstitution, SubstitutionCache
@@ -423,6 +423,27 @@ async def save_substitution_items_to_db(
     """
     if not items:
         return 0
+
+    # Предотвращение ошибки 'value too long for type character varying(255)':
+    # гарантируем расширение колонок таблицы import_substitutions для сложных классов и списков
+    try:
+        await db.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'import_substitutions') THEN
+                    ALTER TABLE import_substitutions ALTER COLUMN class_name TYPE TEXT;
+                    ALTER TABLE import_substitutions ALTER COLUMN class_code TYPE TEXT;
+                    ALTER TABLE import_substitutions ALTER COLUMN owner_name TYPE TEXT;
+                    ALTER TABLE import_substitutions ALTER COLUMN foreign_software_name TYPE TEXT;
+                    ALTER TABLE import_substitutions ALTER COLUMN russian_software_name TYPE TEXT;
+                    ALTER TABLE import_substitutions ALTER COLUMN russian_reg_number TYPE VARCHAR(100);
+                    ALTER TABLE import_substitutions ALTER COLUMN registration_date TYPE VARCHAR(100);
+                END IF;
+            END $$;
+        """))
+        await db.commit()
+    except Exception as e:
+        print(f"Notice: pre-flight check for import_substitutions columns: {e}")
 
     added = 0
     for item in items:

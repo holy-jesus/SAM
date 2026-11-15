@@ -82,7 +82,7 @@ async function handleLogin() {
       </form>
 
       <div class="text-center pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-        <span>SAM Enterprise</span>
+        <span>Где ПО, SAM</span>
         <button
           type="button"
           class="hover:text-blue-600 cursor-pointer"

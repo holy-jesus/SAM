@@ -29,16 +29,24 @@ class Settings(BaseSettings):
     AUTO_SEED: bool = True
 
     # OpenAI / LLM
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.giga.chat/v1")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "GigaChat-3-Ultra")
-    OPENAI_EMBEDDING_MODEL: str = os.getenv("OPENAI_EMBEDDING_MODEL", "EmbeddingsGigaR")
+    OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.giga.chat/v1"
+    OPENAI_MODEL: str = "GigaChat-3-Ultra"
+    OPENAI_EMBEDDING_MODEL: str = "EmbeddingsGigaR"
     EMBEDDING_DIM: int = 1536
 
     # CORS
     CORS_ORIGINS: List[str] = ["*"]
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        case_sensitive=True,
+        env_file=(
+            str(Path(__file__).resolve().parent.parent.parent.parent / ".env"),
+            str(Path(__file__).resolve().parent.parent.parent / ".env"),
+            ".env",
+        ),
+        extra="ignore",
+    )
 
     @property
     def async_database_url(self) -> str:

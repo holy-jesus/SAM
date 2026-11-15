@@ -465,7 +465,13 @@ CREATE TABLE import_history (
     }
     ```
 * `POST /ai/chat`
-  * Кейс В из описания: AI-ассистент ИТ-директора (Text-to-SQL / RAG).
+  * Кейс В из описания: AI-ассистент ИТ-директора (Text-to-SQL / RAG на базе OpenAI API `AsyncOpenAI`).
+  * Архитектура:
+    1. Передача системного контекста и схемы БД SAM в LLM (модели `GigaChat-3-Ultra` / `gpt-4o-mini`).
+    2. Генерация безопасного read-only SQL-запроса (`SELECT` / `WITH`). Валидатор `is_safe_select_query` гарантирует блокировку любых модифицирующих операций.
+    3. Выполнение запроса в PostgreSQL и извлечение строк данных.
+    4. Синтез структурированного отчета на русском языке в формате Markdown с выделением финансовых рисков и рекомендаций (Remediation Plan).
+    5. Автоматический детерминированный фоллбек при недоступности сети или отсутствии ключа API.
   * Тело: `{ "query": "У кого стоит нелицензионный софт и сколько денег мы рискуем потерять?" }`
   * Ответ:
     ```json
@@ -585,14 +591,14 @@ CREATE INDEX idx_proc_sig_embedding ON process_signatures USING ivfflat (embeddi
 ```sql
 CREATE TABLE import_substitutions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    foreign_software_name VARCHAR(255) NOT NULL,    -- Исходное зарубежное ПО (например, 'Photoshop')
-    russian_software_name VARCHAR(500) NOT NULL,    -- Отечественный аналог (например, 'AliveColors', 'Artipic')
-    russian_reg_number VARCHAR(50),                 -- № записи в Едином реестре (например, '4285', '22486')
+    foreign_software_name TEXT NOT NULL,            -- Исходное зарубежное ПО (например, 'Photoshop', 'AnyDesk')
+    russian_software_name TEXT NOT NULL,            -- Отечественный аналог (например, 'AliveColors', 'Ассистент')
+    russian_reg_number VARCHAR(100),                -- № записи в Едином реестре (например, '4285', '24668')
     source VARCHAR(50) DEFAULT 'registry' NOT NULL, -- 'registry' (Реестр ПО) или 'arppsoft' (Каталог АРПП)
-    owner_name VARCHAR(500),                        -- Правообладатель
-    class_code VARCHAR(50),                         -- Код класса (например, '06.08')
-    class_name VARCHAR(255),                        -- Наименование класса (например, 'Редакторы мультимедиа')
-    registration_date VARCHAR(50),
+    owner_name TEXT,                                -- Правообладатель (может содержать консорциумы и длинные юрлица)
+    class_code TEXT,                                -- Коды классов через пробел (например, '02.08 02.06 09.10')
+    class_name TEXT,                                -- Наименования классов (в реестре могут содержать несколько объединённых классов до 400+ символов)
+    registration_date VARCHAR(100),
     registry_url TEXT,
     ru_registry_id INTEGER REFERENCES ru_software_registry(id) ON DELETE SET NULL,
     catalog_software_id UUID REFERENCES software_catalog(id) ON DELETE SET NULL,

@@ -34,6 +34,21 @@ SOFTWARE_STOPWORDS = {
     "сервер", "клиент", "модуль", "утилита", "служба", "пакет"
 }
 
+# Шумовые слова, которые не должны влиять на matching
+_MATCH_NOISE = SOFTWARE_STOPWORDS | {
+    "the", "for", "and", "with", "of", "in", "on", "to", "a", "an",
+    "update", "patch", "build", "x64", "x86", "bit", "32", "64",
+    "sp1", "sp2", "net", "runtime",
+}
+
+
+def _key_tokens(text: str) -> List[str]:
+    """Возвращает список ключевых (не-шумовых) токенов длиной >= 2."""
+    return [
+        t for t in re.findall(r"[a-zA-Z0-9а-яёА-ЯЁ]+", text.lower())
+        if len(t) >= 2 and t not in _MATCH_NOISE
+    ]
+
 
 def compute_string_similarity(s1: str, s2: str) -> float:
     s1_low = s1.lower().strip()
@@ -155,23 +170,64 @@ async def generate_embedding(text_content: str) -> Optional[List[float]]:
         return None
 
 
-def _find_catalog_item_by_name(catalog_items: List[SoftwareCatalog], query_name: str) -> Optional[SoftwareCatalog]:
+def _find_catalog_item_by_name(
+    catalog_items: List[SoftwareCatalog],
+    query_name: str,
+    min_score: float = 0.65,
+) -> Optional[SoftwareCatalog]:
+    """
+    Ищет элемент каталога по имени.
+    Порог повышен до 0.65 (ранее 0.45) чтобы не давать ложных сопоставлений.
+    Строгая проверка: хотя бы один ключевой токен запроса должен быть в имени
+    каталога И хотя бы один ключевой токен каталога должен быть в запросе.
+    """
     q_low = query_name.lower()
+    q_tokens = set(_key_tokens(query_name))
+
     best_item = None
     best_score = 0.0
 
     for item in catalog_items:
         i_low = item.name.lower()
-        if q_low == i_low or q_low in i_low or i_low in q_low:
+        i_tokens = set(_key_tokens(item.name))
+
+        # Строгая проверка пересечения ключевых токенов
+        if q_tokens and i_tokens:
+            common = q_tokens & i_tokens
+            if not common:
+                # Нет общих значимых слов — сразу пропускаем
+                continue
+            # Доля покрытия: оба направления должны быть приемлемыми
+            coverage_q = len(common) / len(q_tokens)
+            coverage_i = len(common) / len(i_tokens)
+            if coverage_q < 0.4 and coverage_i < 0.4:
+                continue
+
+        if q_low == i_low:
             return item
+
         score = compute_string_similarity(query_name, item.name)
         if score > best_score:
             best_score = score
             best_item = item
 
-    if best_item and best_score >= 0.45:
+    if best_item and best_score >= min_score:
         return best_item
     return None
+
+
+def _catalog_vendor_matches(item: SoftwareCatalog, publisher: Optional[str]) -> bool:
+    """Проверяет, совпадает ли вендор каталога с указанным издателем (мягко)."""
+    if not publisher or not item.vendor:
+        return True  # нет данных — не блокируем
+    pub = publisher.strip().lower()
+    vendor = item.vendor.strip().lower()
+    # Проверяем пересечение значимых слов
+    pub_tokens = set(_key_tokens(pub))
+    vendor_tokens = set(_key_tokens(vendor))
+    if not pub_tokens or not vendor_tokens:
+        return True
+    return bool(pub_tokens & vendor_tokens)
 
 
 # ==========================================
@@ -188,11 +244,16 @@ async def save_learned_signature(
     confidence: float,
     match_source: str,
     embedding: Optional[List[float]] = None,
-) -> ProcessSignature:
+    min_confidence_to_save: float = 0.70,
+) -> Optional[ProcessSignature]:
     """
-    Записывает результат распознавания в базу данных (process_signatures),
-    чтобы в будущем мгновенно находить процесс по хэшу, имени или векторному сходству.
+    Записывает результат распознавания в БД (process_signatures).
+    Добавлен порог min_confidence_to_save: не сохраняем низкокачественные
+    сопоставления, чтобы не загрязнять кэш ошибочными правилами.
     """
+    if confidence < min_confidence_to_save:
+        return None
+
     # Проверяем, существует ли уже такая сигнатура
     stmt = select(ProcessSignature).where(
         or_(
@@ -291,7 +352,6 @@ async def match_by_hash(
     res = await db.execute(stmt)
     inst = res.scalar_one_or_none()
     if inst and inst.catalog_software:
-        # Сохраняем в process_signatures для ускорения будущих поисков
         await save_learned_signature(
             db=db,
             process_name=inst.raw_display_name,
@@ -318,7 +378,6 @@ async def match_by_hash(
 
 # ==========================================
 # Шаг 2: Эвристический поиск по БД (Путь установки + Имя .exe + Издатель)
-# Сохраняет точное ПО из каталога, но фиксирует новую реальную версию (reported_version)
 # ==========================================
 async def match_by_path_and_executable(
     db: AsyncSession,
@@ -332,8 +391,6 @@ async def match_by_path_and_executable(
     """
     Эвристический поиск по БД по пути установки, имени исполняемого файла и издателю.
     Решает проблему минорных обновлений версий ПО (когда хэш изменился, но путь и .exe те же).
-    При успешном сопоставлении фиксирует фактическую переданную версию (reported_version),
-    а новый хэш записывает в process_signatures, самообучая систему.
     """
     exe_name, app_dir, norm_path = extract_path_components(install_path, raw_process_name)
     if not exe_name and not norm_path:
@@ -381,7 +438,6 @@ async def match_by_path_and_executable(
             c_exe, c_adir, _ = extract_path_components(c_path, c_name)
             score = 0.0
 
-            # Сравнение исполняемых файлов
             if exe_name and c_exe and exe_name == c_exe:
                 if is_generic:
                     if app_dir and c_adir and (app_dir == c_adir or app_dir in c_adir or c_adir in app_dir):
@@ -391,7 +447,6 @@ async def match_by_path_and_executable(
                 else:
                     score += 0.50
 
-            # Сравнение папок приложения
             if app_dir and c_adir:
                 if app_dir == c_adir:
                     score += 0.35
@@ -402,7 +457,6 @@ async def match_by_path_and_executable(
                     if dir_sim >= 0.60:
                         score += 0.25 * dir_sim
 
-            # Сравнение издателя
             pub_given = (publisher or "").strip().lower()
             pub_cand = (getattr(cand, "raw_publisher", None) or getattr(cand_cat, "vendor", None) or "").strip().lower()
             if pub_given and pub_cand:
@@ -413,7 +467,6 @@ async def match_by_path_and_executable(
                     if pub_sim >= 0.50:
                         score += 0.15 * pub_sim
 
-            # Сравнение имени процесса с эталоном
             name_sim = compute_string_similarity(clean_name, cand_cat.name)
             if name_sim >= 0.50:
                 score += 0.15 * name_sim
@@ -422,7 +475,7 @@ async def match_by_path_and_executable(
                 best_score = score
                 best_match_cat = cand_cat
 
-    # 2. Если в InstalledSoftware не найдено, сверяем путь и exe с корпоративным каталогом SoftwareCatalog
+    # 2. Если в InstalledSoftware не найдено, сверяем с корпоративным каталогом
     if best_score < 0.70 and catalog_items:
         for cat in catalog_items:
             cat_low = cat.name.lower()
@@ -451,7 +504,6 @@ async def match_by_path_and_executable(
                 best_score = score
                 best_match_cat = cat
 
-    # Порог уверенности для принятия решения по путям и файлам: 0.70
     if best_match_cat and best_score >= 0.70:
         cat_id = best_match_cat.id
         cat_name = best_match_cat.name
@@ -459,8 +511,6 @@ async def match_by_path_and_executable(
         cat_category = best_match_cat.category_id or 1
         confidence = round(min(0.96, max(0.88, best_score)), 2)
 
-        # Сохраняем в process_signatures (самообучение)
-        # Если передан новый хэш файла, он теперь сохранён и привязан к каталогу!
         await save_learned_signature(
             db=db,
             process_name=raw_process_name,
@@ -499,15 +549,14 @@ async def match_by_ru_registry(
     cleaned_name: str,
     raw_process_name: str,
     catalog_items: List[SoftwareCatalog],
+    publisher: Optional[str] = None,
     binary_hash: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     name_low = cleaned_name.lower()
     if len(name_low) < 2:
         return None
 
-    # Поиск в таблице ru_software_registry
-    # Для коротких имён (<= 5 символов, напр. 'edge', 'calc', 'word', 'node')
-    # исключаем поиск по произвольным подстрокам (%edge%), чтобы не матчить 'DEPOT-EDGE-M'
+    # Для коротких имён (<= 5 символов) не используем подстроки
     if len(name_low) <= 5:
         stmt = (
             select(RuSoftwareRegistry)
@@ -551,12 +600,30 @@ async def match_by_ru_registry(
             best_score = s
             best_reg = reg
 
-    # Порог схожести: 0.65 для коротких имён, 0.55 для длинных
-    required_threshold = 0.65 if len(name_low) <= 5 else 0.55
+    # Порог схожести: 0.70 для коротких, 0.65 для длинных (повышен с 0.65/0.55)
+    required_threshold = 0.70 if len(name_low) <= 5 else 0.65
     if best_score < required_threshold:
         return None
 
-    cat_item = _find_catalog_item_by_name(catalog_items, getattr(best_reg, "name", ""))
+    # Дополнительная проверка: ключевые токены входного имени должны присутствовать
+    # в имени найденного реестрового элемента
+    input_tokens = set(_key_tokens(cleaned_name))
+    reg_name_tokens = set(_key_tokens(getattr(best_reg, "name", "")))
+    if input_tokens and reg_name_tokens:
+        common = input_tokens & reg_name_tokens
+        # Доля покрытия входных токенов должна быть >= 0.5
+        if not common or len(common) / len(input_tokens) < 0.5:
+            return None
+
+    # Ищем в каталоге строго — с высоким порогом и проверкой вендора
+    cat_item = _find_catalog_item_by_name(
+        catalog_items,
+        getattr(best_reg, "name", ""),
+        min_score=0.70,
+    )
+    # Проверяем совместимость вендора, если передан издатель
+    if cat_item and publisher and not _catalog_vendor_matches(cat_item, publisher):
+        cat_item = None
 
     cat_id = str(cat_item.id) if cat_item else None
     cat_name = cat_item.name if cat_item else getattr(best_reg, "name", cleaned_name)
@@ -565,7 +632,8 @@ async def match_by_ru_registry(
     reg_num = getattr(best_reg, "reg_number", "РФ")
     sw_class = getattr(best_reg, "software_class", "ПО РФ")
 
-    # Сохраняем результат в БД (самообучение)
+    confidence = 0.96 if cat_item else 0.88
+
     await save_learned_signature(
         db=db,
         process_name=raw_process_name,
@@ -574,7 +642,7 @@ async def match_by_ru_registry(
         catalog_software_id=cat_item.id if cat_item else None,
         ru_registry_id=getattr(best_reg, "id", None),
         vendor=vendor,
-        confidence=0.96 if cat_item else 0.93,
+        confidence=confidence,
         match_source="ru_registry",
     )
 
@@ -583,20 +651,21 @@ async def match_by_ru_registry(
         "matched_name": cat_name,
         "vendor": vendor,
         "category_id": category_id,
-        "confidence": 0.96 if cat_item else 0.93,
+        "confidence": confidence,
         "match_source": "ru_registry",
         "reasoning": f"Идентифицировано в Едином реестре отечественного ПО (№ {reg_num}: '{cat_name}', класс: {sw_class}).",
     }
 
 
 # ==========================================
-# Шаг 3: Поиск через векторные эмбеддинги в БД (OpenAI Embeddings + pgvector)
+# Шаг 4: Поиск через векторные эмбеддинги в БД (OpenAI Embeddings + pgvector)
 # ==========================================
 async def match_by_vector_embedding(
     db: AsyncSession,
     cleaned_name: str,
     raw_process_name: str,
     catalog_items: List[SoftwareCatalog],
+    publisher: Optional[str] = None,
     binary_hash: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     # 1. Генерируем вектор эмбеддинга для входящего процесса
@@ -634,8 +703,8 @@ async def match_by_vector_embedding(
                 best_match_item = r
                 match_type = "registry"
 
-    # 4. Порог сходства по косинусному расстоянию (порог >= 0.82)
-    if best_match_item and best_sim >= 0.82:
+    # 4. Порог сходства по косинусному расстоянию (повышен до 0.88)
+    if best_match_item and best_sim >= 0.88:
         if match_type == "signature":
             sig = best_match_item
             sig.times_matched += 1
@@ -652,11 +721,12 @@ async def match_by_vector_embedding(
             }
         elif match_type == "registry":
             reg = best_match_item
-            cat_item = _find_catalog_item_by_name(catalog_items, reg.name)
+            cat_item = _find_catalog_item_by_name(catalog_items, reg.name, min_score=0.70)
+            if cat_item and publisher and not _catalog_vendor_matches(cat_item, publisher):
+                cat_item = None
             cat_id = str(cat_item.id) if cat_item else None
             cat_name = cat_item.name if cat_item else reg.name
 
-            # Сохраняем в process_signatures
             await save_learned_signature(
                 db=db,
                 process_name=raw_process_name,
@@ -683,7 +753,7 @@ async def match_by_vector_embedding(
 
 
 # ==========================================
-# Шаг 4: Поиск через Wikimedia Semantic Search API
+# Шаг 5: Поиск через Wikimedia Semantic Search API
 # ==========================================
 def _query_wikimedia_sync(query: str) -> Optional[Dict[str, str]]:
     params = urllib.parse.urlencode({
@@ -719,6 +789,7 @@ async def match_by_wikimedia(
     cleaned_name: str,
     raw_process_name: str,
     catalog_items: List[SoftwareCatalog],
+    publisher: Optional[str] = None,
     binary_hash: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     try:
@@ -732,15 +803,30 @@ async def match_by_wikimedia(
     title = wiki_data["title"]
     snippet = wiki_data.get("snippet", "")
 
-    # Проверяем, есть ли заголовок статьи среди каталога
-    cat_item = _find_catalog_item_by_name(catalog_items, title)
+    # Дополнительная проверка: заголовок Вики должен содержать ключевые токены
+    # входного запроса, иначе это несвязанная статья
+    input_tokens = set(_key_tokens(cleaned_name))
+    title_tokens = set(_key_tokens(title))
+    if input_tokens and title_tokens:
+        overlap = len(input_tokens & title_tokens) / len(input_tokens)
+        if overlap < 0.4:
+            # Вики нашла нерелевантную статью — игнорируем
+            return None
+
+    # Ищем в каталоге строго — с высоким порогом и проверкой вендора
+    cat_item = _find_catalog_item_by_name(catalog_items, title, min_score=0.70)
     if not cat_item:
-        cat_item = _find_catalog_item_by_name(catalog_items, f"{title} {snippet}")
+        cat_item = _find_catalog_item_by_name(
+            catalog_items, f"{title} {snippet}", min_score=0.70
+        )
+    if cat_item and publisher and not _catalog_vendor_matches(cat_item, publisher):
+        cat_item = None
 
     # Генерируем эмбеддинг для Википедии
     wiki_vec = await generate_embedding(f"{title} {snippet}")
 
-    # Сохраняем в БД для самообучения
+    confidence = 0.90 if cat_item else 0.75
+
     await save_learned_signature(
         db=db,
         process_name=raw_process_name,
@@ -749,7 +835,7 @@ async def match_by_wikimedia(
         catalog_software_id=cat_item.id if cat_item else None,
         ru_registry_id=None,
         vendor=cat_item.vendor if cat_item else "По данным Wikimedia",
-        confidence=0.90 if cat_item else 0.85,
+        confidence=confidence,
         match_source="wikimedia",
         embedding=wiki_vec,
     )
@@ -760,7 +846,7 @@ async def match_by_wikimedia(
             "matched_name": cat_item.name,
             "vendor": cat_item.vendor,
             "category_id": cat_item.category_id,
-            "confidence": 0.90,
+            "confidence": confidence,
             "match_source": "wikimedia",
             "reasoning": f"Продукт сопоставлен через Wikimedia Semantic Search ('{title}') с каталогом компании '{cat_item.name}'.",
         }
@@ -770,14 +856,14 @@ async def match_by_wikimedia(
             "matched_name": title,
             "vendor": "По данным Wikimedia",
             "category_id": None,
-            "confidence": 0.85,
+            "confidence": confidence,
             "match_source": "wikimedia",
             "reasoning": f"Продукт идентифицирован в энциклопедии Wikimedia как '{title}', однако отсутствует в белом списке разрешённого ПО компании (Shadow IT).",
         }
 
 
 # ==========================================
-# Шаг 5: Использование нейросети (OpenAI LLM)
+# Шаг 6: Использование нейросети (OpenAI LLM)
 # ==========================================
 async def match_by_openai(
     db: AsyncSession,
@@ -807,6 +893,9 @@ async def match_by_openai(
         f"Process name: '{raw_process_name}'\n"
         f"Publisher: '{publisher or 'Unknown'}'\n"
         f"Available Corporate Catalog: {json.dumps(catalog_names, ensure_ascii=False)}\n\n"
+        f"IMPORTANT: Only match to a catalog item if you are highly confident it is the SAME product.\n"
+        f"If the process/binary is NOT in the catalog, set matched_catalog_name to null.\n"
+        f"Do NOT guess or assume — be conservative. A wrong match is worse than no match.\n\n"
         f"Respond ONLY with a valid JSON object in this format:\n"
         f"{{\n"
         f'  "official_name": "Official Product Name",\n'
@@ -822,7 +911,7 @@ async def match_by_openai(
             client.chat.completions.create(
                 model=settings.OPENAI_MODEL or "gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a professional IT asset normalizer. Output JSON only."},
+                    {"role": "system", "content": "You are a professional IT asset normalizer. Output JSON only. Be conservative — only match if certain."},
                     {"role": "user", "content": prompt},
                 ],
                 response_format={"type": "json_object"},
@@ -838,20 +927,22 @@ async def match_by_openai(
         matched_cat_name = parsed.get("matched_catalog_name")
 
         cat_item = None
-        if matched_cat_name and matched_cat_name != "null":
-            cat_item = _find_catalog_item_by_name(catalog_items, matched_cat_name)
+        if matched_cat_name and matched_cat_name not in ("null", "None", ""):
+            cat_item = _find_catalog_item_by_name(catalog_items, matched_cat_name, min_score=0.70)
 
         if not cat_item and parsed.get("official_name"):
-            cat_item = _find_catalog_item_by_name(catalog_items, parsed["official_name"])
+            cat_item = _find_catalog_item_by_name(catalog_items, parsed["official_name"], min_score=0.70)
 
-        conf = float(parsed.get("confidence", 0.90))
+        # Проверяем совместимость вендора
+        if cat_item and publisher and not _catalog_vendor_matches(cat_item, publisher):
+            cat_item = None
+
+        conf = float(parsed.get("confidence", 0.80))
         official_name = parsed.get("official_name", raw_process_name)
         vendor_name = cat_item.vendor if cat_item else parsed.get("vendor", publisher)
 
-        # Вычисляем эмбеддинг для самообучения
         llm_vec = await generate_embedding(f"{raw_process_name} {official_name} {vendor_name or ''}")
 
-        # Сохраняем в БД process_signatures для мгновенного нахождения в следующий раз!
         await save_learned_signature(
             db=db,
             process_name=raw_process_name,
@@ -890,15 +981,18 @@ async def match_by_db_signatures(
     raw_low = raw_process_name.lower()
     clean_low = cleaned_name.lower()
 
+    # Ищем только точные совпадения по имени процесса или нормализованному имени.
+    # НЕ используем ilike/подстроку для normalized_name — это приводило к ложным
+    # срабатываниям (напр., "pycharm" совпадало с кэшированным "Microsoft Office...").
     stmt = (
         select(ProcessSignature)
         .where(
             or_(
                 func.lower(ProcessSignature.process_name) == raw_low,
                 func.lower(ProcessSignature.normalized_name) == clean_low,
-                ProcessSignature.normalized_name.ilike(f"%{clean_low}%"),
             )
         )
+        .order_by(ProcessSignature.confidence.desc())
         .limit(1)
     )
     res = await db.execute(stmt)
@@ -920,7 +1014,7 @@ async def match_by_db_signatures(
 
 
 # ==========================================
-# Локальный нечёткий поиск по БД каталога (фолбэк)
+# Локальный нечёткий поиск по БД каталога (финальный фолбэк)
 # ==========================================
 def match_by_catalog_fallback(
     cleaned_name: str,
@@ -928,21 +1022,42 @@ def match_by_catalog_fallback(
     publisher: Optional[str],
     catalog_items: List[SoftwareCatalog],
 ) -> Dict[str, Any]:
+    """
+    Финальный фолбэк — нечёткий поиск по каталогу.
+    Порог повышен до 0.60 (ранее 0.40) чтобы не давать ложных сопоставлений.
+    Если ничего не найдено — возвращаем Shadow IT (unmatched).
+    """
     best_item: Optional[SoftwareCatalog] = None
     best_score: float = 0.0
 
+    input_tokens = set(_key_tokens(cleaned_name))
+
     for item in catalog_items:
+        # Предварительный фильтр: хотя бы один значимый токен должен совпасть
+        item_tokens = set(_key_tokens(item.name))
+        if input_tokens and item_tokens and not (input_tokens & item_tokens):
+            continue
+
         score = compute_string_similarity(cleaned_name, item.name)
+
+        # Вендор усиливает (но не обязателен)
         if publisher and item.vendor:
             pub_score = compute_string_similarity(publisher, item.vendor)
-            score = (score * 0.7) + (pub_score * 0.3)
+            if pub_score >= 0.5:
+                score = (score * 0.75) + (pub_score * 0.25)
+
+        # Штраф если вендор явно не совпадает
+        if publisher and item.vendor:
+            if not _catalog_vendor_matches(item, publisher):
+                score *= 0.5
 
         if score > best_score:
             best_score = score
             best_item = item
 
-    if best_item and best_score >= 0.40:
-        confidence = round(min(0.98, max(0.60, best_score * 1.1)), 2)
+    # Порог 0.60: ниже — Shadow IT
+    if best_item and best_score >= 0.60:
+        confidence = round(min(0.90, best_score), 2)
         return {
             "raw_process_name": raw_process_name,
             "matched_catalog_software_id": str(best_item.id),
@@ -951,7 +1066,7 @@ def match_by_catalog_fallback(
             "category_id": best_item.category_id,
             "confidence": confidence,
             "match_source": "fuzzy_catalog",
-            "reasoning": f"Семантическое сопоставление нормализованного имени '{cleaned_name}' с каталогом разрешённого ПО компании (уверенность: {int(confidence * 100)}%).",
+            "reasoning": f"Нечёткое сопоставление '{cleaned_name}' с каталогом разрешённого ПО (уверенность: {int(confidence * 100)}%).",
         }
 
     return {
@@ -969,12 +1084,12 @@ def match_by_catalog_fallback(
 # ==========================================
 # ГЛАВНЫЙ КОНВЕЙЕР SMART MATCHING:
 # 1. Хэш файла в БД (SHA-256)
-# 2. Эвристический поиск по БД: Путь установки + Имя .exe + Издатель (с сохранением новой версии)
+# 2. Эвристический поиск по БД: Путь установки + Имя .exe + Издатель
 # 3. База сохранённых сигнатур БД (ранее обученные правила)
 # 4. Единый реестр Российского ПО в БД
 # 5. Векторный поиск по эмбеддингам в БД (OpenAI text-embedding-3-small + pgvector)
-# 6. Wikimedia Semantic Search API (+ сохранение в БД)
-# 7. Нейросеть OpenAI LLM (+ сохранение в БД)
+# 6. Wikimedia Semantic Search API
+# 7. Нейросеть OpenAI LLM
 # 8. Нечёткий поиск по каталогу разрешённого ПО (фолбэк)
 # ==========================================
 async def match_raw_process_to_catalog(
@@ -1005,7 +1120,6 @@ async def match_raw_process_to_catalog(
         return _enrich_result(hash_match)
 
     # Шаг 2: Эвристический поиск по БД (Путь установки + .exe + Издатель)
-    # Позволяет моментально сопоставить софт при минорных обновлениях билдов, сохраняя новую версию
     path_match = await match_by_path_and_executable(
         db=db,
         raw_process_name=raw_process_name,
@@ -1024,21 +1138,27 @@ async def match_raw_process_to_catalog(
         return _enrich_result(db_sig_match)
 
     # Шаг 4: Поиск в Едином реестре Российского ПО в БД
-    ru_reg_match = await match_by_ru_registry(db, cleaned, raw_process_name, catalog_items, binary_hash)
+    ru_reg_match = await match_by_ru_registry(
+        db, cleaned, raw_process_name, catalog_items, publisher, binary_hash
+    )
     if ru_reg_match:
         return _enrich_result(ru_reg_match)
 
     # Шаг 5: Векторный поиск по эмбеддингам в БД (OpenAI Embeddings)
-    vec_match = await match_by_vector_embedding(db, cleaned, raw_process_name, catalog_items, binary_hash)
+    vec_match = await match_by_vector_embedding(
+        db, cleaned, raw_process_name, catalog_items, publisher, binary_hash
+    )
     if vec_match:
         return _enrich_result(vec_match)
 
-    # Шаг 6: Поиск через Wikimedia Semantic Search API (+ сохранение в БД)
-    wiki_match = await match_by_wikimedia(db, cleaned, raw_process_name, catalog_items, binary_hash)
+    # Шаг 6: Поиск через Wikimedia Semantic Search API
+    wiki_match = await match_by_wikimedia(
+        db, cleaned, raw_process_name, catalog_items, publisher, binary_hash
+    )
     if wiki_match and wiki_match.get("matched_catalog_software_id"):
         return _enrich_result(wiki_match)
 
-    # Шаг 7: Нейросеть (OpenAI LLM) (+ сохранение в БД)
+    # Шаг 7: Нейросеть (OpenAI LLM)
     ai_match = await match_by_openai(db, raw_process_name, publisher, catalog_items, binary_hash)
     if ai_match and ai_match.get("matched_catalog_software_id"):
         return _enrich_result(ai_match)
@@ -1052,7 +1172,6 @@ async def match_raw_process_to_catalog(
     # Шаг 8: Фолбэк нечёткого поиска по каталогу разрешённого ПО
     fallback = match_by_catalog_fallback(cleaned, raw_process_name, publisher, catalog_items)
     if fallback.get("matched_catalog_software_id"):
-        # Сохраняем успешный фолбэк в БД для ускорения
         await save_learned_signature(
             db=db,
             process_name=raw_process_name,

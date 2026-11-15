@@ -23,7 +23,7 @@ function handleSmartMatch() {
       </div>
       <div>
         <div class="flex items-center gap-2">
-          <span class="font-bold text-slate-900 tracking-tight text-sm">SAM Enterprise</span>
+          <span class="font-bold text-slate-900 tracking-tight text-sm">Где ПО, SAM</span>
         </div>
         <p class="text-[11px] text-slate-400">Учёт и комплаенс программных активов</p>
       </div>

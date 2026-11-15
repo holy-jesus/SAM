@@ -21,14 +21,14 @@ class ImportSubstitution(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    foreign_software_name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
-    russian_software_name: Mapped[str] = mapped_column(String(500), index=True, nullable=False)
-    russian_reg_number: Mapped[Optional[str]] = mapped_column(String(50), index=True, nullable=True)
+    foreign_software_name: Mapped[str] = mapped_column(Text, index=True, nullable=False)
+    russian_software_name: Mapped[str] = mapped_column(Text, index=True, nullable=False)
+    russian_reg_number: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)
     source: Mapped[str] = mapped_column(String(50), default="registry", nullable=False)  # 'registry' | 'arppsoft'
-    owner_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    class_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    class_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    registration_date: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    owner_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    class_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    class_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    registration_date: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     registry_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     ru_registry_id: Mapped[Optional[int]] = mapped_column(
@@ -59,7 +59,7 @@ class SubstitutionCache(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    software_name: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    software_name: Mapped[str] = mapped_column(Text, unique=True, index=True, nullable=False)
     has_substitution: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     substitutions_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_domestic: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
