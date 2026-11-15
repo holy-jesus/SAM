@@ -52,13 +52,13 @@ async def seed_database_if_empty(db: AsyncSession):
     from sam.models.registry import RuSoftwareRegistry
     reg_count = await db.execute(select(func.count(RuSoftwareRegistry.id)))
     if reg_count.scalar_one() == 0:
-        await sync_russian_registry(db, limit_rows=2000)
+        await sync_russian_registry(db)
 
     # 4. База уязвимостей БДУ ФСТЭК (из data/уязвимости.xlsx или bdu.fstec.ru)
     try:
         vuln_count = (await db.execute(select(func.count(Vulnerability.id)))).scalar_one()
         if vuln_count == 0:
-            await sync_vulnerabilities_from_file(db, limit_rows=5000)
+            await sync_vulnerabilities_from_file(db)
     except Exception as e:
         print(f"Notice: initial vulnerability load error: {e}")
 
