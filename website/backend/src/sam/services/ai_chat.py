@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from contextlib import asynccontextmanager
 from typing import Dict, Any, List, Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,12 +15,13 @@ SAM_DATABASE_SCHEMA_PROMPT = """
 СХЕМА ТАБЛИЦ БАЗЫ ДАННЫХ SAM:
 1. `computers` (Рабочие станции и серверы компании):
    - id (UUID, PK)
+   - serial_number (VARCHAR, серийный номер ПК)
    - hostname (VARCHAR, имя хоста)
    - ip_address (VARCHAR, IP-адрес)
    - mac_address (VARCHAR)
    - os_name (VARCHAR, e.g. 'Windows 11 Pro', 'Ubuntu 22.04', 'Astra Linux')
    - os_version (VARCHAR)
-   - cpu_info (VARCHAR), ram_total_gb (FLOAT), disk_free_gb (FLOAT)
+   - cpu_info (VARCHAR), ram_mb (INT, объем оперативной памяти в МБ), disk_info (JSON, данные о дисках)
    - is_online (BOOLEAN, статус сети)
    - last_seen_at (TIMESTAMP)
    - employee_id (UUID, FK -> employees.id, ответственный сотрудник)
@@ -32,16 +34,20 @@ SAM_DATABASE_SCHEMA_PROMPT = """
    - department (VARCHAR, e.g. 'Бухгалтерия', 'IT', 'Маркетинг', 'Отдел продаж', 'Юристы')
    - position (VARCHAR, должность)
    - status (VARCHAR: 'active' - работает, 'on_leave' - в отпуске, 'dismissed' - уволен)
+   - user_category (VARCHAR)
 
 3. `software_catalog` (Корпоративный белый список разрешенного ПО):
    - id (UUID, PK)
    - name (VARCHAR, официальное наименование ПО, e.g. 'Microsoft Office 2021', 'Astra Linux', '1C:Предприятие', 'Adobe Photoshop')
    - vendor (VARCHAR, вендор)
-   - license_type (VARCHAR: 'Commercial', 'Open Source', 'Freeware', 'Trial')
+   - description (TEXT)
+   - license_type (VARCHAR: 'Commercial', 'Free', 'Open Source', 'Subscription')
    - max_installations (INT, лимит установок, 0 = без ограничений)
    - has_substitution (BOOLEAN, флаг наличия отечественного аналога в РФ)
+   - substitutions_count (INT, количество найденных отечественных аналогов)
    - category_id (INT, FK -> software_categories.id)
    - classifier_id (INT, FK -> software_classifiers.id)
+   - ru_registry_id (INT, FK -> ru_software_registry.id)
 
 4. `installed_software` (Фактические установки ПО на компьютерах):
    - id (UUID, PK)
@@ -49,20 +55,24 @@ SAM_DATABASE_SCHEMA_PROMPT = """
    - catalog_software_id (UUID, FK -> software_catalog.id, NULL если софт не опознан)
    - category_id (INT, FK -> software_categories.id)
    - raw_display_name (VARCHAR, имя исполняемого файла или процесса)
+   - raw_publisher (VARCHAR, издатель)
    - raw_version (VARCHAR, версия)
+   - install_path (TEXT)
    - is_deleted (BOOLEAN, true если софт удален, false если реально установлен)
    - last_launched_at (TIMESTAMP, дата последнего запуска)
 
 5. `licenses` (Закупленные лицензии компании):
    - id (UUID, PK)
    - software_id (UUID, FK -> software_catalog.id)
-   - license_key (VARCHAR)
-   - license_type (VARCHAR: 'Commercial', 'Subscription', 'OEM', 'Volume', 'Perpetual')
+   - license_name (VARCHAR, наименование лицензии)
+   - license_type (VARCHAR: 'Commercial', 'Subscription', 'OEM', 'Volume', 'Perpetual', 'Платный')
+   - license_model (VARCHAR: 'per_device', 'per_user')
    - total_purchased (INT, закупленное количество лицензий)
-   - used_count (INT, количество используемых)
    - unit_cost (NUMERIC, стоимость одной лицензии в рублях)
    - currency (VARCHAR, 'RUB')
-   - valid_to (TIMESTAMP, дата окончания подписки или техподдержки)
+   - valid_from (DATE, дата начала действия)
+   - valid_to (DATE, дата окончания лицензии)
+   ВНИМАНИЕ: В таблице `licenses` НЕТ колонки `used_count`! Количество используемых лицензий — это количество активных установок в `installed_software`!
 
 6. `software_categories` (Категории политики комплаенса):
    - id (INT, PK)
@@ -72,19 +82,24 @@ SAM_DATABASE_SCHEMA_PROMPT = """
 
 7. `compliance_alerts` (Активные инциденты комплаенса и риски):
    - id (UUID, PK)
-   - alert_type (VARCHAR: 'license_overuse', 'zombie_software', 'prohibited_software', 'unapproved_software', 'license_expiring_soon')
-   - severity (VARCHAR: 'critical', 'high', 'medium', 'low')
+   - alert_type (VARCHAR: 'license_overuse', 'zombie_software', 'prohibited_software', 'shadow_it', 'commercial_risk')
+   - severity (VARCHAR: 'critical', 'warning', 'info')
+   - computer_id (UUID, FK -> computers.id)
+   - software_id (UUID, FK -> software_catalog.id)
    - title (VARCHAR)
    - description (TEXT)
    - financial_risk_amount (NUMERIC, финансовый риск в рублях)
-   - status (VARCHAR: 'active', 'resolved', 'ignored')
+   - status (VARCHAR: 'active', 'acknowledged', 'resolved')
 
 8. `vulnerabilities` (Уязвимости БДУ ФСТЭК / CVE):
    - id (UUID, PK)
-   - identifier (VARCHAR, e.g. 'BDU:2024-00123')
-   - name (VARCHAR)
-   - cvss3_score (FLOAT, 0.0 - 10.0)
-   - severity (VARCHAR: 'critical', 'high', 'medium', 'low')
+   - bdu_id (VARCHAR, e.g. 'BDU:2024-00123')
+   - cve_id (TEXT, e.g. 'CVE-2024-1234')
+   - name (TEXT)
+   - vendor (TEXT)
+   - software_name (TEXT)
+   - cvss_score (FLOAT, 0.0 - 10.0)
+   - severity (VARCHAR: 'Критический', 'Высокий', 'Средний', 'Низкий')
 
 9. `ru_software_registry` (Единый реестр отечественного ПО):
    - id (INT, PK)
@@ -97,8 +112,10 @@ SAM_DATABASE_SCHEMA_PROMPT = """
 1. Разрешены ТОЛЬКО операции чтения: `SELECT` (или `WITH ... SELECT`).
 2. Категорически ЗАПРЕЩЕНЫ любые команды модификации: INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, INTO.
 3. При запросах к `installed_software` ВСЕГДА используй условие `installed_software.is_deleted = false`.
-4. Для дефицита лицензий сравнивай количество установок `COUNT(i.id)` с суммой закупленных лицензий `COALESCE(SUM(l.total_purchased), 0)`.
-5. Простаивающее ПО («зомби-софт»): ПО у уволенных сотрудников (`e.status = 'dismissed'`) или где `i.last_launched_at < NOW() - INTERVAL '60 days'`.
+4. ВНИМАНИЕ: В таблице `licenses` НЕТ колонки `used_count`! Количество фактически используемых лицензий компании — это количество активных установок ПО: `COUNT(i.id)` из `installed_software i WHERE i.catalog_software_id = sc.id AND i.is_deleted = false`.
+   - Для выявления дефицита лицензий сравнивай количество установок `COUNT(i.id)` с суммой закупленных лицензий `COALESCE(SUM(l.total_purchased), 0)`.
+   - Простаивающие (свободные) закупленные лицензии: `COALESCE(SUM(l.total_purchased), 0) - COUNT(i.id)` (когда закуплено больше, чем установлено).
+5. Простаивающее ПО («зомби-софт»): софт на компьютерах уволенных сотрудников (`e.status = 'dismissed'`) или софт, который не запускался более 60 дней (`i.last_launched_at < NOW() - INTERVAL '60 days' OR i.last_launched_at IS NULL`), где `i.is_deleted = false`.
 6. Запрещённый софт (Shadow IT): категория `cat.is_problematic = true` или `cat.risk_level = 'critical'`.
 7. Обязательно добавляй `LIMIT 50` во все запросы без групповых агрегатов.
 8. Если вопрос носит общий консультационный характер (методология SAM, закон об импортозамещении 188-ФЗ, правила лицензирования) и не требует обращения к БД, укажи `"needs_sql": false`.
@@ -162,6 +179,30 @@ def _extract_json(raw_text: str) -> Dict[str, Any]:
     if not match:
         raise ValueError(f"JSON object not found in LLM response: {raw_text[:200]}")
     return json.loads(match.group(0))
+
+
+@asynccontextmanager
+async def _safe_nested_transaction(db: AsyncSession):
+    """
+    Безопасный контекстный менеджер для выполнения SQL.
+    Если передан реальный AsyncSession, использует begin_nested (SAVEPOINT),
+    гарантируя изоляцию ошибок и предотвращая переход родительской транзакции в состояние aborted.
+    """
+    nested = None
+    begin_fn = getattr(db, "begin_nested", None)
+    if callable(begin_fn) and type(begin_fn).__name__ != "AsyncMock":
+        try:
+            ctx = begin_fn()
+            if hasattr(ctx, "__aenter__") and hasattr(ctx, "__aexit__"):
+                nested = ctx
+        except Exception:
+            nested = None
+
+    if nested is not None:
+        async with nested:
+            yield
+    else:
+        yield
 
 
 async def _run_ai_chat_with_openai(
@@ -234,18 +275,64 @@ async def _run_ai_chat_with_openai(
         return None
 
     # Шаг 3. Исполнение SQL в базе данных SAM
+    data = None
+    executed_sql = sql
     try:
-        db_res = await db.execute(text(sql))
-        rows = db_res.mappings().all()
-        data = [dict(r) for r in rows]
+        async with _safe_nested_transaction(db):
+            db_res = await db.execute(text(sql))
+            rows = db_res.mappings().all()
+            data = [dict(r) for r in rows]
     except Exception as sql_err:
         print(f"Notice: LLM generated SQL failed execution: {sql_err}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+        # Однократная попытка авто-исправления запроса моделью с передачей ошибки
+        try:
+            retry_prompt = (
+                f"Сгенерированный ранее SQL-запрос завершился с ошибкой PostgreSQL:\n"
+                f"{sql_err}\n\n"
+                f"Исходный некорректный SQL:\n{sql}\n\n"
+                f"Напоминание: в таблице `licenses` НЕТ колонки `used_count` (используй COUNT(i.id) из `installed_software` с фильтром `is_deleted = false`).\n"
+                f"Исправь SQL-запрос для вопроса пользователя: «{query}».\n"
+                "Верни ответ СТРОГО в виде JSON: {\"needs_sql\": true, \"sql\": \"...\", \"explanation\": \"...\"}"
+            )
+            retry_resp = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=settings.OPENAI_MODEL or "GigaChat",
+                    messages=[
+                        {"role": "system", "content": SAM_DATABASE_SCHEMA_PROMPT},
+                        {"role": "user", "content": retry_prompt},
+                    ],
+                    temperature=0.01,
+                ),
+                timeout=12.0
+            )
+            retry_content = retry_resp.choices[0].message.content or "{}"
+            parsed_retry = _extract_json(retry_content)
+            retry_sql = parsed_retry.get("sql")
+            if retry_sql and is_safe_select_query(retry_sql):
+                async with _safe_nested_transaction(db):
+                    db_res = await db.execute(text(retry_sql))
+                    rows = db_res.mappings().all()
+                    data = [dict(r) for r in rows]
+                    executed_sql = retry_sql
+        except Exception as retry_err:
+            print(f"Notice: retry SQL generation/execution failed: {retry_err}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    if data is None:
         return None
 
     # Шаг 4. Синтез аналитического ответа ИТ-директору на основе полученных данных
     synthesis_prompt = (
         f"Пользователь спросил: «{query}»\n\n"
-        f"Исполненный SQL-запрос:\n```sql\n{sql}\n```\n\n"
+        f"Исполненный SQL-запрос:\n```sql\n{executed_sql}\n```\n\n"
         f"Данные из базы данных SAM (найдено строк: {len(data)}):\n"
         f"{json.dumps(data[:35], ensure_ascii=False, default=str)}\n\n"
         "Сформируй развернутый, профессиональный и структурированный ответ для ИТ-директора компании на русском языке (Markdown).\n"
@@ -275,7 +362,7 @@ async def _run_ai_chat_with_openai(
     answer = synthesis_resp.choices[0].message.content or ""
     return {
         "answer": answer.strip(),
-        "sql_executed": sql.strip(),
+        "sql_executed": executed_sql.strip(),
         "data": data,
     }
 
@@ -287,24 +374,185 @@ async def _fallback_deterministic_analysis(db: AsyncSession, query: str) -> Dict
     """
     q = query.lower()
 
-    # 1. Дефицит лицензий и финансовые риски штрафов
+    # Вспомогательная функция безопасного выполнения SQL с гарантированным откатом при сбое
+    async def _safe_execute(query_sql: str) -> Optional[List[Dict[str, Any]]]:
+        try:
+            # begin_nested создает SAVEPOINT, если транзакция активна,
+            # и откатывает savepoint при ошибке, сохраняя транзакцию
+            async with _safe_nested_transaction(db):
+                res = await db.execute(text(query_sql))
+                rows = res.mappings().all()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            print(f"Notice: deterministic fallback SQL execution error: {e}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return None
+
+    # 1. Зомби-софт, простаивающее ПО и уволенные сотрудники
+    if any(k in q for k in ["зомби", "простаива", "простой", "уволен", "не использу", "не запуска", "idle", "zombie"]):
+        sql = """
+        SELECT c.hostname,
+               COALESCE(e.full_name, 'Не привязан') AS employee,
+               COALESCE(e.status, 'none') AS employee_status,
+               COALESCE(s.name, i.raw_display_name) AS software_name,
+               i.last_launched_at
+        FROM installed_software i
+        JOIN computers c ON i.computer_id = c.id
+        LEFT JOIN employees e ON c.employee_id = e.id
+        LEFT JOIN software_catalog s ON i.catalog_software_id = s.id
+        WHERE (e.status = 'dismissed' OR i.last_launched_at < NOW() - INTERVAL '60 days' OR i.last_launched_at IS NULL)
+          AND i.is_deleted = false
+        ORDER BY (e.status = 'dismissed') DESC, i.last_launched_at ASC NULLS FIRST
+        LIMIT 25;
+        """
+        data = await _safe_execute(sql)
+        if data is None:
+            return {
+                "answer": "В настоящий момент не удалось выполнить аналитический запрос по простаивающему ПО к базе данных.",
+                "sql_executed": sql.strip(),
+                "data": [],
+            }
+
+        if not data:
+            return {
+                "answer": "Простаивающего ПО («зомби-софт») и закреплённых ПК за уволенными сотрудниками не выявлено. Все лицензии активно используются.",
+                "sql_executed": sql.strip(),
+                "data": [],
+            }
+
+        dismissed_count = sum(1 for r in data if r["employee_status"] == "dismissed")
+        inactive_count = len(data) - dismissed_count
+
+        details = [
+            f"- **{r['software_name']}** на ПК `{r['hostname']}` (пользователь: {r['employee']}"
+            + (", статус: **уволен**" if r["employee_status"] == "dismissed" else f", последний запуск: {str(r['last_launched_at'])[:10] if r['last_launched_at'] else 'не запускался'}")
+            + ")"
+            for r in data[:10]
+        ]
+
+        answer = (
+            f"Обнаружено **{len(data)} фактов неэффективного использования лицензий (зомби-софт)**:\n"
+            f"- У уволенных сотрудников: **{dismissed_count} ПК** с активными установками ПО.\n"
+            f"- Не запускалось более 60 дней: **{inactive_count} инсталляций**.\n\n"
+            f"Примеры выявленных установок:\n"
+            + "\n".join(details)
+            + "\n\nРекомендуется высвободить данные лицензии обратно в корпоративный пул свободных лицензий компании."
+        )
+        return {
+            "answer": answer,
+            "sql_executed": sql.strip(),
+            "data": data,
+        }
+
+    # 2. Запрещенное ПО и Shadow IT
+    if any(k in q for k in ["запрещ", "торрент", "shadow", "опасн", "неавториз", "вредонос", "нежелательн"]):
+        sql = """
+        SELECT c.hostname,
+               c.ip_address,
+               COALESCE(e.full_name, 'Не назначен') AS employee,
+               i.raw_display_name AS process_name,
+               cat.name AS category_name,
+               cat.risk_level
+        FROM installed_software i
+        JOIN computers c ON i.computer_id = c.id
+        LEFT JOIN employees e ON c.employee_id = e.id
+        JOIN software_categories cat ON i.category_id = cat.id
+        WHERE (cat.is_problematic = true OR cat.risk_level = 'critical')
+          AND i.is_deleted = false
+        LIMIT 25;
+        """
+        data = await _safe_execute(sql)
+        if data is None:
+            return {
+                "answer": "Не удалось выполнить запрос по запрещенному ПО к базе данных.",
+                "sql_executed": sql.strip(),
+                "data": [],
+            }
+
+        if not data:
+            return {
+                "answer": "В корпоративной сети не зафиксировано активных установок ПО из категории «Запрещенный к использованию» или критических угроз.",
+                "sql_executed": sql.strip(),
+                "data": [],
+            }
+
+        answer = (
+            f"ВНИМАНИЕ! Найдено **{len(data)} инсталляций запрещённого ПО** в сети предприятия:\n\n"
+            + "\n".join(
+                [
+                    f"- **{r['process_name']}** на ПК `{r['hostname']}` (IP: {r['ip_address'] or 'N/A'}, пользователь: {r['employee']})"
+                    for r in data[:10]
+                ]
+            )
+            + "\n\nРекомендуется немедленно изолировать данные хосты и произвести деинсталляцию силами отдела ИБ."
+        )
+        return {
+            "answer": answer,
+            "sql_executed": sql.strip(),
+            "data": data,
+        }
+
+    # 3. Финансовые риски и активные алерты комплаенса
+    if any(k in q for k in ["финансов", "риск", "алерт", "инцидент", "ущерб"]):
+        sql = """
+        SELECT alert_type, severity, title, financial_risk_amount, status
+        FROM compliance_alerts
+        WHERE status = 'active'
+        ORDER BY financial_risk_amount DESC
+        LIMIT 20;
+        """
+        data = await _safe_execute(sql)
+        if data is not None and data:
+            total_risk = sum(float(r["financial_risk_amount"] or 0) for r in data)
+            items = [
+                f"- **{r['title']}** (серьёзность: `{r['severity']}`): риск **{float(r['financial_risk_amount'] or 0):,.2f} руб.**"
+                for r in data[:8]
+            ]
+            answer = (
+                f"Текущий суммарный финансовый риск компании по активным инцидентам комплаенса составляет **{total_risk:,.2f} руб.**\n\n"
+                f"Ключевые инциденты:\n" + "\n".join(items)
+            )
+            return {
+                "answer": answer,
+                "sql_executed": sql.strip(),
+                "data": data,
+            }
+
+    # 4. Дефицит лицензий и финансовые риски штрафов
     if any(k in q for k in ["нелицензион", "дефицит", "штраф", "перерасход", "нехватк", "баланс", "лицензи"]):
         sql = """
         SELECT s.name AS software_name,
-               COALESCE(SUM(l.total_purchased), 0) AS purchased,
-               COUNT(i.id) AS installed,
-               (COUNT(i.id) - COALESCE(SUM(l.total_purchased), 0)) AS deficit,
-               COALESCE(MAX(l.unit_cost), 0) AS unit_cost,
-               (COUNT(i.id) - COALESCE(SUM(l.total_purchased), 0)) * COALESCE(MAX(l.unit_cost), 0) AS penalty_rub
+               COALESCE(lic.total_purchased, 0) AS purchased,
+               inst.installed_count AS installed,
+               (inst.installed_count - COALESCE(lic.total_purchased, 0)) AS deficit,
+               COALESCE(lic.unit_cost, 0) AS unit_cost,
+               (inst.installed_count - COALESCE(lic.total_purchased, 0)) * COALESCE(lic.unit_cost, 0) AS penalty_rub
         FROM software_catalog s
-        LEFT JOIN licenses l ON l.software_id = s.id
-        JOIN installed_software i ON i.catalog_software_id = s.id AND i.is_deleted = false
-        GROUP BY s.id, s.name
-        HAVING COUNT(i.id) > COALESCE(SUM(l.total_purchased), 0);
+        JOIN (
+            SELECT catalog_software_id, COUNT(id) AS installed_count
+            FROM installed_software
+            WHERE is_deleted = false AND catalog_software_id IS NOT NULL
+            GROUP BY catalog_software_id
+        ) inst ON inst.catalog_software_id = s.id
+        LEFT JOIN (
+            SELECT software_id, SUM(total_purchased) AS total_purchased, MAX(unit_cost) AS unit_cost
+            FROM licenses
+            GROUP BY software_id
+        ) lic ON lic.software_id = s.id
+        WHERE inst.installed_count > COALESCE(lic.total_purchased, 0)
+        ORDER BY penalty_rub DESC
+        LIMIT 50;
         """
-        result = await db.execute(text(sql))
-        rows = result.mappings().all()
-        data = [dict(r) for r in rows]
+        data = await _safe_execute(sql)
+        if data is None:
+            return {
+                "answer": "Не удалось выполнить запрос анализа дефицита лицензий к базе данных.",
+                "sql_executed": sql.strip(),
+                "data": [],
+            }
 
         if not data:
             return {
@@ -331,92 +579,7 @@ async def _fallback_deterministic_analysis(db: AsyncSession, query: str) -> Dict
             "data": data,
         }
 
-    # 2. Зомби-софт и уволенные сотрудники
-    if any(k in q for k in ["зомби", "простаива", "уволен", "не использу", "не запуска"]):
-        sql = """
-        SELECT c.hostname,
-               COALESCE(e.full_name, 'Не привязан') AS employee,
-               COALESCE(e.status, 'none') AS employee_status,
-               COALESCE(s.name, i.raw_display_name) AS software_name,
-               i.last_launched_at
-        FROM installed_software i
-        JOIN computers c ON i.computer_id = c.id
-        LEFT JOIN employees e ON c.employee_id = e.id
-        LEFT JOIN software_catalog s ON i.catalog_software_id = s.id
-        WHERE (e.status = 'dismissed' OR i.last_launched_at < NOW() - INTERVAL '60 days')
-          AND i.is_deleted = false
-        LIMIT 25;
-        """
-        result = await db.execute(text(sql))
-        rows = result.mappings().all()
-        data = [dict(r) for r in rows]
-
-        if not data:
-            return {
-                "answer": "Простаивающего ПО («зомби-софт») и закреплённых ПК за уволенными сотрудниками не выявлено. Все лицензии активно используются.",
-                "sql_executed": sql.strip(),
-                "data": [],
-            }
-
-        dismissed_count = sum(1 for r in data if r["employee_status"] == "dismissed")
-        inactive_count = len(data) - dismissed_count
-
-        answer = (
-            f"Обнаружено **{len(data)} фактов неэффективного использования лицензий**:\n"
-            f"- У уволенных сотрудников: **{dismissed_count} ПК** с активным ПО.\n"
-            f"- Не запускалось более 60 дней: **{inactive_count} инсталляций**.\n\n"
-            f"Рекомендуется высвободить данные лицензии обратно в корпоративный пул свободных лицензий компании."
-        )
-        return {
-            "answer": answer,
-            "sql_executed": sql.strip(),
-            "data": data,
-        }
-
-    # 3. Запрещенное ПО и Shadow IT
-    if any(k in q for k in ["запрещ", "торрент", "shadow", "опасн", "неавториз", "риск"]):
-        sql = """
-        SELECT c.hostname,
-               c.ip_address,
-               COALESCE(e.full_name, 'Не назначен') AS employee,
-               i.raw_display_name AS process_name,
-               cat.name AS category_name,
-               cat.risk_level
-        FROM installed_software i
-        JOIN computers c ON i.computer_id = c.id
-        LEFT JOIN employees e ON c.employee_id = e.id
-        JOIN software_categories cat ON i.category_id = cat.id
-        WHERE (cat.is_problematic = true OR cat.risk_level = 'critical')
-          AND i.is_deleted = false;
-        """
-        result = await db.execute(text(sql))
-        rows = result.mappings().all()
-        data = [dict(r) for r in rows]
-
-        if not data:
-            return {
-                "answer": "В корпоративной сети не зафиксировано активных установок ПО из категории «Запрещенный к использованию» или критических угроз.",
-                "sql_executed": sql.strip(),
-                "data": [],
-            }
-
-        answer = (
-            f"ВНИМАНИЕ! Найдено **{len(data)} инсталляций запрещённого ПО** в сети предприятия:\n\n"
-            + "\n".join(
-                [
-                    f"- **{r['process_name']}** на ПК `{r['hostname']}` (IP: {r['ip_address'] or 'N/A'}, пользователь: {r['employee']})"
-                    for r in data[:10]
-                ]
-            )
-            + "\n\nРекомендуется немедленно изолировать данные хосты и произвести деинсталляцию силами отдела ИБ."
-        )
-        return {
-            "answer": answer,
-            "sql_executed": sql.strip(),
-            "data": data,
-        }
-
-    # 4. Общая сводка системы SAM
+    # 5. Общая сводка системы SAM
     sql = """
     SELECT 
         (SELECT COUNT(*) FROM computers) AS total_computers,
@@ -426,9 +589,15 @@ async def _fallback_deterministic_analysis(db: AsyncSession, query: str) -> Dict
         (SELECT COUNT(*) FROM compliance_alerts WHERE status = 'active') AS active_alerts,
         COALESCE((SELECT SUM(financial_risk_amount) FROM compliance_alerts WHERE status = 'active'), 0) AS total_risk;
     """
-    result = await db.execute(text(sql))
-    row = dict(result.mappings().one())
+    data = await _safe_execute(sql)
+    if data is None or not data:
+        return {
+            "answer": "В настоящий момент сводная информация по системе SAM временно недоступна.",
+            "sql_executed": sql.strip(),
+            "data": [],
+        }
 
+    row = data[0]
     answer = (
         f"Текущая сводка системы Software Asset Management (SAM):\n\n"
         f"- **Компьютеров на учёте**: {row['total_computers']} (из них {row['online_computers']} онлайн)\n"
@@ -461,6 +630,16 @@ async def process_ai_chat_query(db: AsyncSession, query: str) -> Dict[str, Any]:
                 return ai_result
         except Exception as e:
             print(f"Notice: OpenAI chat processing encountered an error: {e}. Falling back to deterministic engine.")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    # Гарантируем откат перед резервным движком на случай прерванной транзакции
+    try:
+        await db.rollback()
+    except Exception:
+        pass
 
     # Резервный расчет
     return await _fallback_deterministic_analysis(db, query)

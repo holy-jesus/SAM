@@ -922,7 +922,7 @@ async def match_by_openai(
                 # response_format убран, так как GigaChat не поддерживает type="json_object"
                 temperature=0.01,  # В GigaChat 0.0 иногда вызывает ошибку валидации (min > 0), 0.01 безопаснее
             ),
-            timeout=8.0  # Для GigaChat лучше чуть увеличить таймаут (5 сек иногда не хватает)
+            timeout=15.0  # Для GigaChat лучше чуть увеличить таймаут (5 сек иногда не хватает)
         )
 
         raw_content = response.choices[0].message.content.strip()

@@ -32,7 +32,7 @@ import * as mock from './mockData';
 // Экземпляр Axios с автоматическим добавлением Bearer-токена
 export const apiClient = axios.create({
   baseURL: '/api/v1',
-  timeout: 5000,
+  timeout: 60000, // 60 секунд (предотвращает NS_BINDING_ABORTED при обращении к ИИ, LLM и тяжелым выборкам)
   headers: {
     'Content-Type': 'application/json',
   },
@@ -811,7 +811,7 @@ export const api = {
 
   async syncRegistry(): Promise<{ success: boolean; message: string; updated_count: number }> {
     try {
-      const res = await apiClient.post('/registry/sync');
+      const res = await apiClient.post('/registry/sync', null, { timeout: 180000 });
       return res.data;
     } catch {
       await delay(800);
@@ -1031,7 +1031,7 @@ export const api = {
 
   async syncVulnerabilities(limit?: number): Promise<VulnerabilitySyncResponse> {
     try {
-      const res = await apiClient.post('/vulnerabilities/sync', null, { params: { limit } });
+      const res = await apiClient.post('/vulnerabilities/sync', null, { params: { limit }, timeout: 180000 });
       return res.data;
     } catch {
       await delay(800);
@@ -1056,6 +1056,7 @@ export const api = {
       formData.append('file', file);
       const res = await apiClient.post('/connector/import/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000,
       });
       return res.data;
     } catch {
