@@ -82,5 +82,6 @@ async def init_db():
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             except Exception as e:
                 print(f"Notice: pgvector extension creation skipped or already present: {e}")
-        
-        await conn.run_sync(Base.metadata.create_all)
+        # NOTE: Table schema is managed by Alembic migrations (alembic upgrade head).
+        # Do NOT call Base.metadata.create_all here — it bypasses migrations
+        # and would leave existing columns with wrong types unchanged.

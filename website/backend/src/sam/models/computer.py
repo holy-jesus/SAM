@@ -30,6 +30,9 @@ class Computer(Base):
     disk_info: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     is_online: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    enrollment_status: Mapped[str] = mapped_column(
+        String(50), default="pending", nullable=False, index=True
+    )  # 'pending' (заявка), 'approved' (разрешён), 'blocked' (заблокирован/черный список)
     
     employee_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True

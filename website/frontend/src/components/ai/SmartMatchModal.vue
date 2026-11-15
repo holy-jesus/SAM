@@ -113,6 +113,21 @@ function approveMatch() {
 
         <div class="text-xs text-slate-600 space-y-1">
           <p><span class="font-medium text-slate-700">Вендор:</span> {{ result.vendor || 'Корпоративный каталог' }}</p>
+          <p v-if="result.matched_version"><span class="font-medium text-slate-700">Определённая версия:</span> <code class="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-900">{{ result.matched_version }}</code></p>
+          <p v-if="result.match_source">
+            <span class="font-medium text-slate-700">Ступень конвейера (Источник):</span>
+            <span class="font-semibold text-blue-700 ml-1">
+              {{
+                result.match_source === 'hash' ? 'Шаг 1: Контрольная сумма SHA-256' :
+                result.match_source === 'path_heuristic' ? 'Шаг 2: Эвристика пути установки и имени .exe' :
+                result.match_source === 'process_signatures' ? 'Шаг 3: Самообучающаяся база сигнатур' :
+                result.match_source === 'ru_registry' ? 'Шаг 4: Единый реестр отечественного ПО' :
+                result.match_source === 'embedding' ? 'Шаг 5: Векторный семантический поиск (pgvector)' :
+                result.match_source === 'wikimedia' ? 'Шаг 6: Wikimedia Semantic Search API' :
+                result.match_source === 'openai' ? 'Шаг 7: Нейросеть (OpenAI LLM)' : 'Шаг 8: Локальный каталог'
+              }}
+            </span>
+          </p>
           <p><span class="font-medium text-slate-700">Обоснование ИИ:</span> {{ result.reasoning }}</p>
         </div>
 

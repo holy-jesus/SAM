@@ -72,11 +72,13 @@ CREATE TABLE computers (
     disk_info JSONB,
     is_online BOOLEAN DEFAULT FALSE,
     last_seen_at TIMESTAMP WITH TIME ZONE,
+    enrollment_status VARCHAR(50) DEFAULT 'pending' NOT NULL, -- 'pending' (заявка), 'approved' (разрешён), 'blocked' (чёрный список)
     employee_id UUID REFERENCES employees(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX idx_computers_serial ON computers(serial_number);
+CREATE INDEX idx_computers_enrollment_status ON computers(enrollment_status);
 CREATE INDEX idx_computers_employee ON computers(employee_id);
 ```
 
@@ -302,10 +304,15 @@ CREATE TABLE import_history (
 * `DELETE /employees/{id}` — удаление
 
 ### 3.5. Компьютеры / Хосты (`/computers`)
-* `GET /computers` (Query: `is_online`, `search`, `page`, `limit`)
+* `GET /computers` (Query: `is_online`, `search`, `status` [`pending`, `approved`, `blocked`], `page`, `limit`)
+* `GET /computers/enrollment/stats` — сводная статистика по статусам: общее число, заявки (`pending`), разрешённые (`approved`), заблокированные (`blocked`)
 * `POST /computers` — создание ПК вручную
-* `GET /computers/{id}` — полная карточка ПК: характеристики железа, ОС, сотрудник, список установленного ПО
+* `GET /computers/{id}` — полная карточка ПК: характеристики железа, ОС, статус авторизации, сотрудник, список установленного ПО
 * `PUT /computers/{id}` — редактирование (в т.ч. смена сотрудника `employee_id`)
+* `PATCH /computers/{id}/status` — изменение статуса авторизации (`{"status": "approved" | "blocked" | "pending"}`)
+* `POST /computers/{id}/approve` — быстрое одобрение ПК (разрешение приёма данных)
+* `POST /computers/{id}/block` — добавление ПК в чёрный список (отклонение приёма данных с кодом 403)
+* `POST /computers/{id}/reset-pending` — возврат ПК в список заявок на рассмотрение
 * `DELETE /computers/{id}` — удаление
 * `POST /computers/{id}/software` — ручное добавление факта установки софта на ПК
 * `DELETE /computers/{id}/software/{installed_software_id}` — ручное удаление факта установки
@@ -337,8 +344,37 @@ CREATE TABLE import_history (
 * `POST /registry/sync` — ручной запуск обновления реестра с `reestr.digital.gov.ru`
 
 ### 3.10. Коннектор агента и Импорт дампов (`/connector`)
+* `POST /connector/agent/register`
+  * Первичная регистрация Go-агента при установке/первом запуске.
+  * Если ПК новый, создаётся запись с `enrollment_status = "pending"` и `can_send_data = false`.
+  * Тело:
+    ```json
+    {
+      "serial_number": "G69ZD5J",
+      "hostname": "WORKSTATION-01",
+      "ip_address": "192.168.1.45",
+      "mac_address": "00:1A:2B:3C:4D:5E",
+      "os_name": "Windows 11 Pro",
+      "os_version": "23H2",
+      "cpu": "Intel Core i7-13700",
+      "ram_mb": 32768
+    }
+    ```
+  * Ответ (`AgentAuthResponse`):
+    ```json
+    {
+      "serial_number": "G69ZD5J",
+      "hostname": "WORKSTATION-01",
+      "enrollment_status": "pending",
+      "can_send_data": false,
+      "message": "Заявка на добавление ПК принята и ожидает подтверждения администратором.",
+      "server_time": "2026-11-15T05:00:00Z"
+    }
+    ```
 * `POST /connector/agent/report`
-  * Эндпоинт для живого Go-агента.
+  * Эндпоинт выгрузки инвентаризации софта для живого Go-агента.
+  * **Контроль доступа**: Принимает отчёты строго от ПК со статусом `enrollment_status == "approved"`.
+  * Если статус `pending` или `blocked`, сервер отклоняет запрос с `HTTP 403 Forbidden` и понятным описанием причины.
   * Тело:
     ```json
     {
@@ -364,8 +400,19 @@ CREATE TABLE import_history (
     ```
 * `POST /connector/agent/heartbeat`
   * Пинг от агента для фиксации `is_online = true` и `last_seen_at = NOW()`.
+  * Возвращает текущий статус авторизации `enrollment_status` и флаг `can_send_data`.
+  * Ответ:
+    ```json
+    {
+      "status": "ok",
+      "recognized": true,
+      "enrollment_status": "approved",
+      "can_send_data": true,
+      "message": "ПК авторизован. Приём данных разрешён."
+    }
+    ```
 * `POST /connector/import/upload`
-  * Multipart/form-data загрузка файлов `.xlsx`, `.csv`, `.json` (например, тестового файла `data/Пример дампа с компов.xlsx`). Бэкенд автоматически создаёт ПК по `COMPUTERS.SERIAL_NUMBER`, сопоставляет софт и запускает комплаенс-анализ.
+  * Multipart/form-data загрузка файлов `.xlsx`, `.csv`, `.json` (например, тестового файла `data/Пример дампа с компов.xlsx`). Бэкенд автоматически создаёт ПК по `COMPUTERS.SERIAL_NUMBER` (со статусом `approved`), сопоставляет софт и запускает комплаенс-анализ.
 * `GET /connector/import/history` — список последних загрузок и количество распознанных строк.
 
 ### 3.11. ИИ-модули (`/ai`)
@@ -498,5 +545,225 @@ CREATE INDEX idx_proc_sig_embedding ON process_signatures USING ivfflat (embeddi
 ### 4.5. Механизм самообучения и кэширования версий
 1. **Автоматическая регистрация новых хэшей**: При обнаружении новой версии софта через эвристику по путям (Шаг 2) новый SHA-256 хэш файла сразу сохраняется в `process_signatures`. Это гарантирует, что при сканировании следующих ПК в сети тот же файл будет мгновенно опознан уже на **Шаге 1** (по хэшу) без дополнительных проверок.
 2. **Исключение статических заглушек**: Все сопоставления хранятся в PostgreSQL (`process_signatures`, `installed_software`, `software_catalog`, `ru_software_registry`). С каждым обработанным дампом или отчётом агента скорость работы системы возрастает, а число обращений к внешним сервисам стремится к нулю.
+
+---
+
+### 4.6. Исправление ложных срабатываний коротких токенов (Защита от сопоставления `edge.exe` с `DEPOT-EDGE-M`)
+* **Проблема**: Запросы с короткими именами процессов (например, `edge.exe` $\to$ `edge`, 4 символа) при нестрогом поиске по подстроке `%edge%` ошибочно захватывали сложные композитные названия из Единого реестра (например, `DEPOT-EDGE-M`).
+* **Алгоритмическое решение (без хардкода)**:
+  1. **SQL-фильтрация по границам слов**: Для коротких токенов ($\le 5$ символов) в таблице `ru_software_registry` выполняется поиск строго по границам слов (`name = name_low` либо с разделителями пробелами `name LIKE 'name_low %'` / `'% name_low'` / `'% name_low %'`).
+  2. **Метрика схожести с ограничением по точности (Precision-bounded Dice score)**:
+     $$\text{Precision} = \frac{|T_{query} \cap T_{target}|}{|T_{target} \setminus \text{Stopwords}|}$$
+     Если целевое название содержит дополнительные отличительные брендовые токены, отсутствующие в запросе (как `DEPOT` и `M`), показатель точности падает ($1/3 = 0.33$), а итоговая схожесть принудительно ограничивается ($\le 0.26$).
+  3. **Повышенный порог уверенности для Реестра ПО РФ**: Порог отсечения для коротких токенов установлен в `0.65`, что исключает ошибочную классификацию системного софта.
+
+---
+
+### 4.7. Модуль импортозамещения ПО (`reestr.digital.gov.ru` & HAR-парсер)
+
+#### Таблица `import_substitutions`
+Хранит соответствия между зарубежным ПО и рекомендованными отечественными аналогами (из сервиса Минцифры и каталога АРПП «Отечественный софт»).
+```sql
+CREATE TABLE import_substitutions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    foreign_software_name VARCHAR(255) NOT NULL,    -- Исходное зарубежное ПО (например, 'Photoshop')
+    russian_software_name VARCHAR(500) NOT NULL,    -- Отечественный аналог (например, 'AliveColors', 'Artipic')
+    russian_reg_number VARCHAR(50),                 -- № записи в Едином реестре (например, '4285', '22486')
+    source VARCHAR(50) DEFAULT 'registry' NOT NULL, -- 'registry' (Реестр ПО) или 'arppsoft' (Каталог АРПП)
+    owner_name VARCHAR(500),                        -- Правообладатель
+    class_code VARCHAR(50),                         -- Код класса (например, '06.08')
+    class_name VARCHAR(255),                        -- Наименование класса (например, 'Редакторы мультимедиа')
+    registration_date VARCHAR(50),
+    registry_url TEXT,
+    ru_registry_id INTEGER REFERENCES ru_software_registry(id) ON DELETE SET NULL,
+    catalog_software_id UUID REFERENCES software_catalog(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_subs_foreign ON import_substitutions(foreign_software_name);
+CREATE INDEX idx_subs_russian ON import_substitutions(russian_software_name);
+CREATE INDEX idx_subs_reg_num ON import_substitutions(russian_reg_number);
+```
+
+#### API Эндпоинты импортозамещения
+* `GET /api/v1/substitution/search?query=Photoshop` — поиск аналогов для зарубежного продукта (ищет в БД, при необходимости воспроизводит HTTP-запрос браузера на `reestr.digital.gov.ru/import-substitution/`, парсит HTML и кэширует в БД).
+* `GET /api/v1/substitution/suggestions?query=Photo` — автодополнение названий ПО через Bitrix AJAX эндпоинт `reestr.digital.gov.ru`.
+* `GET /api/v1/substitution/catalog/{catalog_software_id}` — подбор российских аналогов для позиции корпоративного каталога ПО.
+* `POST /api/v1/substitution/fetch-online?query=Photoshop` — прямой вызов онлайн-парсинга страницы `reestr.digital.gov.ru/import-substitution/?query=...` с сохранением аналогов в базу.
+
+---
+
+### 4.8. Модуль учёта уязвимостей безопасности (БДУ ФСТЭК России / `vullist.xlsx`)
+
+#### Таблица `vulnerabilities`
+Интегрирована база данных угроз и уязвимостей безопасности информации ФСТЭК России (`https://bdu.fstec.ru/files/documents/vullist.xlsx`, 99 000+ записей).
+```sql
+CREATE TABLE vulnerabilities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bdu_id VARCHAR(50) UNIQUE NOT NULL,             -- Идентификатор ФСТЭК (например, 'BDU:2024-00123')
+    name TEXT NOT NULL,                             -- Наименование уязвимости
+    description TEXT,                               -- Описание уязвимости
+    vendor VARCHAR(255) NOT NULL,                   -- Вендор ПО
+    software_name VARCHAR(255) NOT NULL,            -- Название ПО
+    software_version TEXT,                          -- Уязвимые версии
+    software_type VARCHAR(255),                     -- Тип ПО
+    vuln_class VARCHAR(255),                        -- Класс уязвимости
+    severity VARCHAR(50) DEFAULT 'Средний' NOT NULL,-- 'Критический', 'Высокий', 'Средний', 'Низкий'
+    cvss_score REAL,                                -- Оценка CVSS (от 0.0 до 10.0)
+    solution TEXT,                                  -- Меры по устранению
+    status VARCHAR(100),
+    exploit_status VARCHAR(255),                    -- Наличие эксплойта (например, 'Существует')
+    cve_id VARCHAR(500),                            -- Идентификаторы CVE (например, 'CVE-2023-1234')
+    publish_date VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_vuln_bdu_id ON vulnerabilities(bdu_id);
+CREATE INDEX idx_vuln_vendor ON vulnerabilities(vendor);
+CREATE INDEX idx_vuln_sw_name ON vulnerabilities(software_name);
+CREATE INDEX idx_vuln_severity ON vulnerabilities(severity);
+CREATE INDEX idx_vuln_cve_id ON vulnerabilities(cve_id);
+```
+
+#### API Эндпоинты уязвимостей
+* `GET /api/v1/vulnerabilities` — список уязвимостей с поиском, фильтрами (`severity`, `vendor`, `has_exploit`) и пагинацией.
+* `GET /api/v1/vulnerabilities/summary` — сводная статистика: общее число уязвимостей, число критических и высоких, число уязвимостей с подтверждёнными эксплойтами.
+* `GET /api/v1/vulnerabilities/computer/{computer_id}` — соотнесение фактически установленного ПО на конкретном хосте с базой БДУ ФСТЭК и формирование отчёта об уязвимостях ПК.
+* `GET /api/v1/vulnerabilities/software/{installed_software_id}` — уязвимости, выявленные для конкретной инсталляции программы.
+* `POST /api/v1/vulnerabilities/sync` — потоковая загрузка и обновление базы уязвимостей из `data/уязвимости.xlsx` или онлайн с `https://bdu.fstec.ru/files/documents/vullist.xlsx`.
+
+---
+
+## 5. Авторизация клиентов и Жизненный цикл хостов (Enrollment Lifecycle)
+
+### 5.1. Архитектура и граф состояний клиента (Go-агента)
+
+При первичной установке и запуске агент не имеет автоматического доступа к выгрузке инвентаризационных данных на сервер SAM. Реализован строгий процесс верификации и допуска хостов администратором.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: POST /connector/agent/register (Установка/Старт)
+    pending --> approved: POST /computers/{id}/approve (Одобрение админом)
+    pending --> blocked: POST /computers/{id}/block (Отклонение админом)
+    approved --> blocked: POST /computers/{id}/block (Блокировка)
+    blocked --> approved: POST /computers/{id}/approve (Разблокировка)
+    approved --> pending: POST /computers/{id}/reset-pending (Сброс)
+    blocked --> pending: POST /computers/{id}/reset-pending (Сброс)
+```
+
+#### Статусы жизненного цикла (`enrollment_status`):
+1. **`pending` (Заявка)**:
+   * ПК зарегистрировался при первом запуске через `POST /api/v1/connector/agent/register`.
+   * ПК отображается администратору во вкладке «Заявки» (`/computers?status=pending`).
+   * Попытки выгрузки данных (`POST /api/v1/connector/agent/report`) отклоняются сервером с кодом **`403 Forbidden`**.
+   * Фоновый агент отправляет `heartbeat`, получая `can_send_data = false`, и ожидает решения без спама сервера ошибками.
+2. **`approved` (Разрешён)**:
+   * Администратор одобрил подключение ПК через интерфейс (`POST /computers/{id}/approve` или `PATCH /computers/{id}/status`).
+   * Сервер беспрепятственно принимает полные отчёты об установленном софте (`POST /api/v1/connector/agent/report`) и сопоставляет их с каталогом и лицензиями.
+3. **`blocked` (Запрещён / Чёрный список)**:
+   * Администратор отклонил заявку или заблокировал ПК (`POST /computers/{id}/block`).
+   * Все попытки агента отправить отчёты немедленно отклоняются с кодом **`403 Forbidden`**.
+   * ПК отображается во вкладке «Чёрный список» (`/computers?status=blocked`), откуда администратор может в любой момент восстановить его в `approved`.
+
+---
+
+### 5.2. Модель данных в PostgreSQL
+
+В таблицу `computers` добавлено поле статуса авторизации с B-Tree индексом для мгновенной фильтрации сотен и тысяч рабочих станций:
+```sql
+ALTER TABLE computers 
+ADD COLUMN enrollment_status VARCHAR(50) DEFAULT 'pending' NOT NULL;
+
+CREATE INDEX idx_computers_enrollment_status ON computers(enrollment_status);
+```
+*(Миграция Alembic: `0003_add_computer_enrollment_status.py`)*
+
+---
+
+### 5.3. Спецификация REST API авторизации и управления хостами
+
+#### 1. Регистрация нового агента: `POST /api/v1/connector/agent/register`
+* **Назначение**: Первичный handshake агента при старте сервиса.
+* **Request Body**:
+```json
+{
+  "serial_number": "PC-SALES-4910",
+  "hostname": "WORKSTATION-SALES-01",
+  "ip_address": "192.168.1.144",
+  "mac_address": "50:9A:4C:88:99:AA",
+  "os_name": "Windows 11 Pro",
+  "os_version": "23H2",
+  "cpu": "Intel Core i5-13400",
+  "ram_mb": 16384
+}
+```
+* **Response (200 OK)**:
+```json
+{
+  "serial_number": "PC-SALES-4910",
+  "hostname": "WORKSTATION-SALES-01",
+  "enrollment_status": "pending",
+  "can_send_data": false,
+  "message": "Заявка на добавление ПК принята и ожидает подтверждения администратором.",
+  "server_time": "2026-11-15T05:00:00Z"
+}
+```
+
+#### 2. Пинг и опрос статуса допуска: `POST /api/v1/connector/agent/heartbeat`
+* **Request Body**:
+```json
+{
+  "serial_number": "PC-SALES-4910",
+  "hostname": "WORKSTATION-SALES-01"
+}
+```
+* **Response (200 OK)**:
+```json
+{
+  "status": "ok",
+  "recognized": true,
+  "enrollment_status": "pending",
+  "can_send_data": false,
+  "message": "Заявка ожидает подтверждения администратором."
+}
+```
+
+#### 3. Выгрузка инвентаризации: `POST /api/v1/connector/agent/report`
+* При `enrollment_status != "approved"` возвращает:
+  * **Status**: `403 Forbidden`
+  * **Response Body**:
+    ```json
+    {
+      "detail": "Заявка на подключение данного ПК ожидает подтверждения администратором (статус: pending). Отправка данных отклонена."
+    }
+    ```
+* При `enrollment_status == "approved"` данные принимаются и обрабатываются в обычном режиме (`200 OK`).
+
+#### 4. Фильтрация ПК по статусу допуска: `GET /api/v1/computers`
+Поддерживает query-параметры `status` и `enrollment_status`:
+* `GET /api/v1/computers?status=pending` — возвращает **только заявки** на добавление новых ПК.
+* `GET /api/v1/computers?status=approved` — возвращает **только разрешённые ПК**, от которых принимаются данные.
+* `GET /api/v1/computers?status=blocked` — возвращает **только заблокированные ПК** (чёрный список).
+
+#### 5. Сводные счетчики допуска: `GET /api/v1/computers/enrollment/stats`
+* **Response (200 OK)**:
+```json
+{
+  "total": 48,
+  "pending": 3,
+  "approved": 42,
+  "blocked": 3
+}
+```
+
+#### 6. Управление статусом авторизации администратором:
+* **`PATCH /api/v1/computers/{id}/status`** — прямое переключение между любыми статусами:
+  * Body: `{"status": "approved"}` (или `"blocked"`, `"pending"`)
+* **`POST /api/v1/computers/{id}/approve`** — одобрить ПК и разрешить приём данных от агента.
+* **`POST /api/v1/computers/{id}/block`** — заблокировать ПК и отправить в чёрный список.
+* **`POST /api/v1/computers/{id}/reset-pending`** — вернуть ПК в состояние заявки.
+
+
 
 

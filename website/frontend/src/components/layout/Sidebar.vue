@@ -17,6 +17,8 @@ import {
   Bot,
   Wand2,
   FileText,
+  ArrowLeftRight,
+  Bug,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -38,6 +40,7 @@ const navigationSections = computed(() => [
         badge: activeAlertsCount.value > 0 ? activeAlertsCount.value : undefined,
         badgeVariant: 'destructive' as const,
       },
+      { name: 'Уязвимости БДУ ФСТЭК', path: '/vulnerabilities', icon: Bug },
     ],
   },
   {
@@ -56,6 +59,7 @@ const navigationSections = computed(() => [
       { name: 'Категории софта', path: '/categories', icon: Tags },
       { name: 'Классификатор ПО РФ', path: '/classifiers', icon: FolderTree },
       { name: 'Реестр отечественного ПО', path: '/registry', icon: Landmark },
+      { name: 'Импортозамещение ПО', path: '/substitution', icon: ArrowLeftRight },
     ],
   },
   {

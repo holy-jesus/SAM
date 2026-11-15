@@ -20,6 +20,8 @@ import {
   AlertOctagon,
   Clock,
   Sparkles,
+  ArrowLeftRight,
+  Bug,
 } from 'lucide-vue-next';
 import Card from '@/components/ui/Card.vue';
 import Button from '@/components/ui/Button.vue';
@@ -190,7 +192,7 @@ function handleSmartMatchShortcut() {
     </div>
 
     <!-- Панель быстрых действий (в стиле Home Assistant) -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
       <button
         type="button"
         class="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 transition cursor-pointer text-left shadow-2xs"
@@ -200,8 +202,36 @@ function handleSmartMatchShortcut() {
           <AlertTriangle class="w-5 h-5" />
         </div>
         <div>
-          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Комплаенс-контроль</h4>
-          <p class="text-[10px] text-slate-500">Баланс и риски дефицита</p>
+          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Комплаенс</h4>
+          <p class="text-[10px] text-slate-500">Баланс и риски</p>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        class="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 transition cursor-pointer text-left shadow-2xs"
+        @click="router.push('/vulnerabilities')"
+      >
+        <div class="w-9 h-9 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+          <Bug class="w-5 h-5" />
+        </div>
+        <div>
+          <h4 class="text-xs font-semibold text-slate-900 leading-tight">БДУ ФСТЭК</h4>
+          <p class="text-[10px] text-slate-500">Уязвимости ПО</p>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        class="p-3 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3 transition cursor-pointer text-left shadow-2xs"
+        @click="router.push('/substitution')"
+      >
+        <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+          <ArrowLeftRight class="w-5 h-5" />
+        </div>
+        <div>
+          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Замещение</h4>
+          <p class="text-[10px] text-slate-500">Аналоги РФ</p>
         </div>
       </button>
 
@@ -214,8 +244,8 @@ function handleSmartMatchShortcut() {
           <Wand2 class="w-5 h-5" />
         </div>
         <div>
-          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Умный мэтчинг</h4>
-          <p class="text-[10px] text-slate-500">Нормализация процессов ИИ</p>
+          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Smart Match</h4>
+          <p class="text-[10px] text-slate-500">Нормализация ИИ</p>
         </div>
       </button>
 
@@ -229,7 +259,7 @@ function handleSmartMatchShortcut() {
         </div>
         <div>
           <h4 class="text-xs font-semibold text-slate-900 leading-tight">Анализ EULA</h4>
-          <p class="text-[10px] text-slate-500">Аудит коммерческих прав</p>
+          <p class="text-[10px] text-slate-500">Аудит соглашений</p>
         </div>
       </button>
 
@@ -242,8 +272,8 @@ function handleSmartMatchShortcut() {
           <Bot class="w-5 h-5" />
         </div>
         <div>
-          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Чат ИТ-директора</h4>
-          <p class="text-[10px] text-slate-500">Запросы на естественном языке</p>
+          <h4 class="text-xs font-semibold text-slate-900 leading-tight">Чат ИТ</h4>
+          <p class="text-[10px] text-slate-500">AI-ассистент</p>
         </div>
       </button>
     </div>

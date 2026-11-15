@@ -65,11 +65,14 @@ async def get_registry_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/sync", response_model=RegistrySyncResponse)
-async def sync_registry(db: AsyncSession = Depends(get_db)):
-    updated_count = await sync_russian_registry(db)
+async def sync_registry(
+    limit: Optional[int] = Query(None, description="Лимит строк (по умолчанию без ограничений — загружаются все 31 986+ записей)"),
+    db: AsyncSession = Depends(get_db)
+):
+    updated_count = await sync_russian_registry(db, limit_rows=limit)
     return {
         "success": True,
-        "message": "Единый реестр отечественного ПО успешно синхронизирован с reestr.digital.gov.ru",
+        "message": f"Единый реестр отечественного ПО успешно синхронизирован ({updated_count} записей добавлено/обновлено).",
         "updated_count": updated_count,
     }
 

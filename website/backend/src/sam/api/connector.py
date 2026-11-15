@@ -11,6 +11,9 @@ from sam.models.import_history import ImportHistory
 from sam.schemas.connector import (
     AgentReportRequest,
     AgentHeartbeatRequest,
+    AgentRegisterRequest,
+    AgentAuthResponse,
+    AgentHeartbeatResponse,
     ImportResultResponse,
     ImportHistoryResponse,
 )
@@ -19,6 +22,83 @@ from sam.services.dump_parser import parse_dump_file
 from sam.services.compliance_engine import recalculate_compliance_alerts
 
 router = APIRouter(prefix="/connector", tags=["Agent Connector & Dump Import"])
+
+
+@router.post("/agent/register", response_model=AgentAuthResponse)
+async def register_agent(payload: AgentRegisterRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Первичная регистрация клиента при установке/первом запуске.
+    Если ПК новый, он добавляется со статусом 'pending' (заявка).
+    Если ПК уже зарегистрирован, обновляются его параметры и возвращается текущий статус.
+    """
+    comp_res = await db.execute(
+        select(Computer).where(Computer.serial_number == payload.serial_number.strip())
+    )
+    comp = comp_res.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+
+    if not comp:
+        comp = Computer(
+            serial_number=payload.serial_number.strip(),
+            hostname=payload.hostname.strip(),
+            ip_address=payload.ip_address,
+            mac_address=payload.mac_address,
+            os_name=payload.os_name,
+            os_version=payload.os_version,
+            cpu_info=payload.cpu,
+            ram_mb=payload.ram_mb,
+            enrollment_status="pending",
+            is_online=True,
+            last_seen_at=now,
+        )
+        db.add(comp)
+        await db.commit()
+        await db.refresh(comp)
+
+        return AgentAuthResponse(
+            serial_number=comp.serial_number,
+            hostname=comp.hostname,
+            enrollment_status="pending",
+            can_send_data=False,
+            message="Заявка на добавление ПК принята и ожидает подтверждения администратором.",
+            server_time=now,
+        )
+
+    # Updating computer hardware info
+    comp.hostname = payload.hostname.strip()
+    if payload.ip_address:
+        comp.ip_address = payload.ip_address
+    if payload.mac_address:
+        comp.mac_address = payload.mac_address
+    if payload.os_name:
+        comp.os_name = payload.os_name
+    if payload.os_version:
+        comp.os_version = payload.os_version
+    if payload.cpu:
+        comp.cpu_info = payload.cpu
+    if payload.ram_mb:
+        comp.ram_mb = payload.ram_mb
+    comp.is_online = True
+    comp.last_seen_at = now
+    await db.commit()
+    await db.refresh(comp)
+
+    can_send = (comp.enrollment_status == "approved")
+    if comp.enrollment_status == "approved":
+        msg = "ПК авторизован. Приём данных разрешён."
+    elif comp.enrollment_status == "blocked":
+        msg = "ПК заблокирован администратором (в чёрном списке). Отправка данных запрещена."
+    else:
+        msg = "Заявка на добавление ПК ожидает подтверждения администратором."
+
+    return AgentAuthResponse(
+        serial_number=comp.serial_number,
+        hostname=comp.hostname,
+        enrollment_status=comp.enrollment_status,
+        can_send_data=can_send,
+        message=msg,
+        server_time=now,
+    )
 
 
 @router.post("/agent/report")
@@ -40,27 +120,57 @@ async def receive_agent_report(payload: AgentReportRequest, db: AsyncSession = D
             os_version=payload.os_version,
             cpu_info=payload.cpu,
             ram_mb=payload.ram_mb,
+            enrollment_status="pending",
             is_online=True,
             last_seen_at=now,
         )
         db.add(comp)
-        await db.flush()
-    else:
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="ПК не авторизован (создана заявка со статусом 'pending'). Приём данных отклонён до подтверждения администратором.",
+        )
+
+    # Check enrollment status
+    if comp.enrollment_status == "pending":
         comp.hostname = payload.hostname.strip()
-        if payload.ip_address:
-            comp.ip_address = payload.ip_address
-        if payload.mac_address:
-            comp.mac_address = payload.mac_address
-        if payload.os_name:
-            comp.os_name = payload.os_name
-        if payload.os_version:
-            comp.os_version = payload.os_version
-        if payload.cpu:
-            comp.cpu_info = payload.cpu
-        if payload.ram_mb:
-            comp.ram_mb = payload.ram_mb
         comp.is_online = True
         comp.last_seen_at = now
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="Заявка на подключение данного ПК ожидает подтверждения администратором (статус: pending). Отправка данных отклонена.",
+        )
+    elif comp.enrollment_status == "blocked":
+        comp.hostname = payload.hostname.strip()
+        comp.is_online = True
+        comp.last_seen_at = now
+        await db.commit()
+        raise HTTPException(
+            status_code=403,
+            detail="Данный ПК заблокирован администратором (статус: blocked / чёрный список). Приём данных отклонён.",
+        )
+    elif comp.enrollment_status != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Недопустимый статус авторизации ПК: '{comp.enrollment_status}'. Приём данных отклонён.",
+        )
+
+    comp.hostname = payload.hostname.strip()
+    if payload.ip_address:
+        comp.ip_address = payload.ip_address
+    if payload.mac_address:
+        comp.mac_address = payload.mac_address
+    if payload.os_name:
+        comp.os_name = payload.os_name
+    if payload.os_version:
+        comp.os_version = payload.os_version
+    if payload.cpu:
+        comp.cpu_info = payload.cpu
+    if payload.ram_mb:
+        comp.ram_mb = payload.ram_mb
+    comp.is_online = True
+    comp.last_seen_at = now
 
     # 2. Process software items
     matched_count = 0
@@ -136,7 +246,7 @@ async def receive_agent_report(payload: AgentReportRequest, db: AsyncSession = D
     }
 
 
-@router.post("/agent/heartbeat")
+@router.post("/agent/heartbeat", response_model=AgentHeartbeatResponse)
 async def receive_agent_heartbeat(
     payload: AgentHeartbeatRequest, db: AsyncSession = Depends(get_db)
 ):
@@ -148,11 +258,32 @@ async def receive_agent_heartbeat(
         comp.is_online = True
         comp.last_seen_at = datetime.now(timezone.utc)
         if payload.hostname:
-            comp.hostname = payload.hostname
+            comp.hostname = payload.hostname.strip()
         await db.commit()
-        return {"status": "ok", "recognized": True}
 
-    return {"status": "ok", "recognized": False}
+        can_send = comp.enrollment_status == "approved"
+        if comp.enrollment_status == "approved":
+            msg = "ПК авторизован. Приём данных разрешён."
+        elif comp.enrollment_status == "blocked":
+            msg = "ПК заблокирован администратором (в чёрном списке)."
+        else:
+            msg = "Заявка ожидает подтверждения администратором."
+
+        return AgentHeartbeatResponse(
+            status="ok",
+            recognized=True,
+            enrollment_status=comp.enrollment_status,
+            can_send_data=can_send,
+            message=msg,
+        )
+
+    return AgentHeartbeatResponse(
+        status="ok",
+        recognized=False,
+        enrollment_status="unregistered",
+        can_send_data=False,
+        message="ПК не зарегистрирован на сервере",
+    )
 
 
 @router.post("/import/upload", response_model=ImportResultResponse)
@@ -198,6 +329,7 @@ async def upload_dump_file(
                 cpu_info="Intel Core i5",
                 ram_mb=16384,
                 is_online=True,
+                enrollment_status="approved",
                 last_seen_at=now,
             )
             db.add(new_comp)

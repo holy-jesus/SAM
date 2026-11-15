@@ -210,8 +210,100 @@ export interface SmartMatchResult {
   matched_catalog_software_id?: string;
   matched_name: string;
   vendor?: string;
+  matched_version?: string;
   confidence: number;
   reasoning: string;
+  match_source?: string;
+}
+
+// === Модуль импортозамещения ПО (Раздел 4.7) ===
+export interface ImportSubstitutionItem {
+  id: string;
+  foreign_software_name: string;
+  russian_software_name: string;
+  russian_reg_number?: string;
+  source: string; // 'registry' | 'arppsoft'
+  owner_name?: string;
+  class_code?: string;
+  class_name?: string;
+  registration_date?: string;
+  registry_url?: string;
+  ru_registry_id?: number | null;
+  catalog_software_id?: string | null;
+  created_at?: string;
+}
+
+export interface SubstitutionSearchResponse {
+  query: string;
+  total_found: number;
+  items: ImportSubstitutionItem[];
+}
+
+export interface SubstitutionSyncResponse {
+  success: boolean;
+  imported_count: number;
+  message: string;
+}
+
+// === Модуль учёта уязвимостей безопасности БДУ ФСТЭК (Раздел 4.8) ===
+export interface VulnerabilityItem {
+  id: string;
+  bdu_id: string;
+  name: string;
+  description?: string;
+  vendor: string;
+  software_name: string;
+  software_version?: string;
+  software_type?: string;
+  vuln_class?: string;
+  severity: string; // 'Критический' | 'Высокий' | 'Средний' | 'Низкий'
+  cvss_score?: number | null;
+  solution?: string;
+  status?: string;
+  exploit_status?: string;
+  cve_id?: string;
+  publish_date?: string;
+  created_at?: string;
+}
+
+export interface VulnerabilitiesListResponse {
+  total: number;
+  page: number;
+  limit: number;
+  items: VulnerabilityItem[];
+}
+
+export interface VulnerabilitiesSummary {
+  total_in_db: number;
+  critical_count: number;
+  high_count: number;
+  exploitable_count: number;
+}
+
+export interface SoftwareVulnerabilityDetail {
+  installed_software_id: string;
+  software_name: string;
+  publisher?: string;
+  version?: string;
+  vulnerabilities_count: number;
+  vulnerabilities: VulnerabilityItem[];
+}
+
+export interface ComputerVulnerabilitiesResponse {
+  computer_id: string;
+  hostname: string;
+  serial_number: string;
+  total_vulnerabilities: number;
+  critical_count: number;
+  high_count: number;
+  has_exploits?: boolean;
+  affected_software: SoftwareVulnerabilityDetail[];
+}
+
+export interface VulnerabilitySyncResponse {
+  success: boolean;
+  imported_count: number;
+  message: string;
 }
 
 export interface EulaAnalysisResult {

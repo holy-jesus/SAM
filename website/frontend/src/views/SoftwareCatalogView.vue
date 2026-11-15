@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { api } from '@/services/api';
-import { SoftwareCatalogItem, SoftwareClassifier, SoftwareCategory, LicenseType } from '@/types';
+import { SoftwareCatalogItem, SoftwareClassifier, SoftwareCategory, LicenseType, ImportSubstitutionItem } from '@/types';
 import Card from '@/components/ui/Card.vue';
 import Button from '@/components/ui/Button.vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -20,6 +20,8 @@ import {
   User,
   AlertCircle,
   Landmark,
+  ArrowLeftRight,
+  ExternalLink,
 } from 'lucide-vue-next';
 
 const catalog = ref<SoftwareCatalogItem[]>([]);
@@ -32,6 +34,25 @@ const licenseTypeFilter = ref('all');
 // Модальные окна
 const isModalOpen = ref(false);
 const editingItem = ref<Partial<SoftwareCatalogItem> | null>(null);
+
+// Модальное окно подбора отечественных аналогов
+const isSubModalOpen = ref(false);
+const selectedCatalogItemForSub = ref<SoftwareCatalogItem | null>(null);
+const substitutionsList = ref<ImportSubstitutionItem[]>([]);
+const loadingSubstitutions = ref(false);
+
+async function openSubstitutions(item: SoftwareCatalogItem) {
+  selectedCatalogItemForSub.value = item;
+  substitutionsList.value = [];
+  loadingSubstitutions.value = true;
+  isSubModalOpen.value = true;
+  try {
+    const res = await api.getCatalogSubstitutions(item.id);
+    substitutionsList.value = res.items || [];
+  } finally {
+    loadingSubstitutions.value = false;
+  }
+}
 
 const form = ref({
   name: '',
@@ -245,6 +266,14 @@ async function deleteItem(id: string) {
                 <div class="flex items-center justify-end gap-1">
                   <button
                     type="button"
+                    title="Подобрать российские аналоги (Импортозамещение)"
+                    class="p-1.5 rounded-md hover:bg-blue-50 text-blue-600 transition cursor-pointer"
+                    @click="openSubstitutions(item)"
+                  >
+                    <ArrowLeftRight class="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
                     title="Редактировать"
                     class="p-1.5 rounded-md hover:bg-slate-100 text-slate-600 transition cursor-pointer"
                     @click="openEdit(item)"
@@ -324,6 +353,69 @@ async function deleteItem(id: string) {
           <Button variant="primary" size="sm" type="submit">Сохранить</Button>
         </div>
       </form>
+    </Modal>
+
+    <!-- Модальное окно рекомендованных отечественных аналогов (Импортозамещение) -->
+    <Modal
+      v-model="isSubModalOpen"
+      :title="selectedCatalogItemForSub ? `Российские аналоги для «${selectedCatalogItemForSub.name}»` : 'Подбор аналогов'"
+      subtitle="Данные Единого реестра Минцифры РФ и каталога АРПП «Отечественный софт»"
+      maxWidth="xl"
+    >
+      <div v-if="loadingSubstitutions" class="py-8 text-center text-xs text-slate-500">
+        Поиск и подбор отечественных альтернатив...
+      </div>
+      <div v-else-if="substitutionsList.length > 0" class="space-y-3">
+        <p class="text-xs text-slate-600">
+          Для замены зарубежного решения <strong>{{ selectedCatalogItemForSub?.name }}</strong> в соответствии с политикой импортозамещения рекомендуются следующие отечественные продукты:
+        </p>
+
+        <div class="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+          <div
+            v-for="sub in substitutionsList"
+            :key="sub.id"
+            class="p-3 bg-white hover:bg-slate-50 transition-colors flex items-center justify-between text-xs"
+          >
+            <div>
+              <div class="font-bold text-slate-900 flex items-center gap-1.5">
+                <CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{{ sub.russian_software_name }}</span>
+              </div>
+              <div class="text-[11px] text-slate-500 mt-0.5">
+                Правообладатель: {{ sub.owner_name || 'Отечественный разработчик' }}
+              </div>
+              <div class="text-[10px] text-slate-400 font-mono mt-0.5">
+                {{ sub.class_name ? `Класс: ${sub.class_name}` : '' }}
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <a
+                v-if="sub.russian_reg_number"
+                :href="sub.registry_url || `https://reestr.digital.gov.ru/reestr/?q=${sub.russian_reg_number}`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono font-bold text-[11px] bg-blue-50 text-blue-700 hover:bg-blue-100"
+                title="Открыть в Реестре Минцифры"
+              >
+                <span>№ {{ sub.russian_reg_number }}</span>
+                <ExternalLink class="w-3 h-3 text-blue-500" />
+              </a>
+
+              <Badge :variant="sub.source === 'registry' ? 'success' : 'secondary'" size="sm">
+                {{ sub.source === 'registry' ? 'Реестр РФ' : 'АРПП' }}
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="text-center py-6 text-xs text-slate-400">
+        Для выбранной программы прямых аналогов в базе не обнаружено. Вы можете перейти в раздел <RouterLink to="/substitution" class="text-blue-600 underline">«Импортозамещение»</RouterLink> для расширенного поиска.
+      </div>
+
+      <template #footer>
+        <Button variant="outline" size="sm" @click="isSubModalOpen = false">Закрыть</Button>
+      </template>
     </Modal>
   </div>
 </template>

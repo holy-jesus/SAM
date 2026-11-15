@@ -13,6 +13,8 @@ from sam.api.installed_software import router as installed_software_router
 from sam.api.connector import router as connector_router
 from sam.api.ai import router as ai_router
 from sam.api.matcher import router as matcher_router
+from sam.api.substitution import router as substitution_router
+from sam.api.vulnerabilities import router as vulnerabilities_router
 
 api_router = APIRouter()
 
@@ -30,3 +32,5 @@ api_router.include_router(installed_software_router)
 api_router.include_router(connector_router)
 api_router.include_router(ai_router)
 api_router.include_router(matcher_router)
+api_router.include_router(substitution_router)
+api_router.include_router(vulnerabilities_router)

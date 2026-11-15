@@ -26,20 +26,46 @@ def clean_process_name(raw_name: str) -> str:
     return cleaned
 
 
+SOFTWARE_STOPWORDS = {
+    "software", "suite", "desktop", "security", "endpoint", "edition",
+    "professional", "enterprise", "community", "client", "server", "system",
+    "application", "manager", "driver", "service", "agent", "tool", "tools",
+    "система", "программа", "комплекс", "платформа", "версия", "редакция",
+    "сервер", "клиент", "модуль", "утилита", "служба", "пакет"
+}
+
+
 def compute_string_similarity(s1: str, s2: str) -> float:
-    s1_low = s1.lower()
-    s2_low = s2.lower()
+    s1_low = s1.lower().strip()
+    s2_low = s2.lower().strip()
     if s1_low == s2_low:
         return 1.0
 
-    tokens1 = set(re.findall(r"\w+", s1_low))
-    tokens2 = set(re.findall(r"\w+", s2_low))
+    tokens1 = set(re.findall(r"[a-zA-Z0-9а-яА-Я]+", s1_low))
+    tokens2 = set(re.findall(r"[a-zA-Z0-9а-яА-Я]+", s2_low))
     if not tokens1 or not tokens2:
         return 0.0
 
-    jaccard = len(tokens1 & tokens2) / len(tokens1 | tokens2)
+    intersection = tokens1 & tokens2
+    if not intersection:
+        return 0.0
+
+    # Non-stopword tokens in target
+    distinct_target_tokens = tokens2 - SOFTWARE_STOPWORDS
+    if not distinct_target_tokens:
+        distinct_target_tokens = tokens2
+
+    # Precision against distinct target tokens
+    precision = len(intersection & distinct_target_tokens) / len(distinct_target_tokens) if distinct_target_tokens else 1.0
+    dice = (2.0 * len(intersection)) / (len(tokens1) + len(tokens2))
     seq = difflib.SequenceMatcher(None, s1_low, s2_low).ratio()
-    return max(jaccard, seq)
+    len_ratio = min(len(s1_low), len(s2_low)) / max(len(s1_low), len(s2_low))
+
+    score = (dice * 0.4) + (seq * len_ratio * 0.3) + (precision * 0.3)
+    if precision < 0.5:
+        score = min(score, precision * 0.7)
+
+    return round(score, 3)
 
 
 def compute_cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
@@ -480,18 +506,38 @@ async def match_by_ru_registry(
         return None
 
     # Поиск в таблице ru_software_registry
-    stmt = (
-        select(RuSoftwareRegistry)
-        .where(
-            or_(
-                func.lower(RuSoftwareRegistry.name) == name_low,
-                func.lower(RuSoftwareRegistry.name).like(f"%{name_low}%"),
-                func.lower(RuSoftwareRegistry.alternative_names).like(f"%{name_low}%"),
-                RuSoftwareRegistry.alternative_names.ilike(f"%{raw_process_name}%"),
+    # Для коротких имён (<= 5 символов, напр. 'edge', 'calc', 'word', 'node')
+    # исключаем поиск по произвольным подстрокам (%edge%), чтобы не матчить 'DEPOT-EDGE-M'
+    if len(name_low) <= 5:
+        stmt = (
+            select(RuSoftwareRegistry)
+            .where(
+                or_(
+                    func.lower(RuSoftwareRegistry.name) == name_low,
+                    func.lower(RuSoftwareRegistry.name).like(f"{name_low} %"),
+                    func.lower(RuSoftwareRegistry.name).like(f"% {name_low}"),
+                    func.lower(RuSoftwareRegistry.name).like(f"% {name_low} %"),
+                    func.lower(RuSoftwareRegistry.alternative_names) == name_low,
+                    func.lower(RuSoftwareRegistry.alternative_names).like(f"{name_low} %"),
+                    func.lower(RuSoftwareRegistry.alternative_names).like(f"% {name_low}"),
+                    func.lower(RuSoftwareRegistry.alternative_names).like(f"% {name_low} %"),
+                )
             )
+            .limit(10)
         )
-        .limit(10)
-    )
+    else:
+        stmt = (
+            select(RuSoftwareRegistry)
+            .where(
+                or_(
+                    func.lower(RuSoftwareRegistry.name) == name_low,
+                    func.lower(RuSoftwareRegistry.name).like(f"%{name_low}%"),
+                    func.lower(RuSoftwareRegistry.alternative_names).like(f"%{name_low}%"),
+                    RuSoftwareRegistry.alternative_names.ilike(f"%{raw_process_name}%"),
+                )
+            )
+            .limit(15)
+        )
     result = await db.execute(stmt)
     registry_items = list(result.scalars().all())
     if not registry_items:
@@ -505,7 +551,9 @@ async def match_by_ru_registry(
             best_score = s
             best_reg = reg
 
-    if best_score < 0.38:
+    # Порог схожести: 0.65 для коротких имён, 0.55 для длинных
+    required_threshold = 0.65 if len(name_low) <= 5 else 0.55
+    if best_score < required_threshold:
         return None
 
     cat_item = _find_catalog_item_by_name(catalog_items, getattr(best_reg, "name", ""))

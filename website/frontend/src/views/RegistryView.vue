@@ -69,6 +69,24 @@ async function runSync() {
   }
 }
 
+// Запуск батч-генерации векторных эмбеддингов для семантического поиска
+const generatingEmbeddings = ref(false);
+const embeddingSuccessMessage = ref<string | null>(null);
+
+async function runGenerateEmbeddings() {
+  generatingEmbeddings.value = true;
+  embeddingSuccessMessage.value = null;
+  try {
+    const res = await api.generateRegistryEmbeddings(200);
+    embeddingSuccessMessage.value = res.message;
+    setTimeout(() => {
+      embeddingSuccessMessage.value = null;
+    }, 4000);
+  } finally {
+    generatingEmbeddings.value = false;
+  }
+}
+
 // Фильтрация записей реестра по строке поиска
 const filteredItems = computed(() => {
   if (!searchQuery.value.trim()) return registryItems.value;
@@ -111,6 +129,16 @@ const filteredItems = computed(() => {
         </a>
 
         <Button
+          variant="outline"
+          size="sm"
+          :loading="generatingEmbeddings"
+          @click="runGenerateEmbeddings"
+        >
+          <Sparkles class="w-3.5 h-3.5 mr-1 text-purple-600" />
+          Эмбеддинги (OpenAI)
+        </Button>
+
+        <Button
           variant="primary"
           size="sm"
           :loading="syncing"
@@ -120,6 +148,12 @@ const filteredItems = computed(() => {
           Обновить реестр сейчас
         </Button>
       </div>
+    </div>
+
+    <!-- Уведомление о генерации эмбеддингов -->
+    <div v-if="embeddingSuccessMessage" class="p-3 bg-purple-50 border border-purple-200 text-purple-800 rounded-lg text-xs flex items-center gap-2">
+      <Sparkles class="w-4 h-4 text-purple-600 shrink-0" />
+      <span>{{ embeddingSuccessMessage }}</span>
     </div>
 
     <!-- Информационная панель статуса базы реестра -->

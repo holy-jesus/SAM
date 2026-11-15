@@ -26,6 +26,7 @@ class ComputerBase(BaseModel):
     ram_mb: Optional[int] = None
     disk_info: Optional[Any] = None
     is_online: bool = False
+    enrollment_status: str = "pending"  # "pending", "approved", "blocked"
     employee_id: Optional[str] = None
 
 
@@ -44,8 +45,21 @@ class ComputerUpdate(BaseModel):
     ram_mb: Optional[int] = None
     disk_info: Optional[Any] = None
     is_online: Optional[bool] = None
+    enrollment_status: Optional[str] = None
     last_seen_at: Optional[datetime] = None
     employee_id: Optional[str] = None
+
+
+class ComputerEnrollmentStatusUpdate(BaseModel):
+    status: str  # "pending", "approved", "blocked"
+
+
+class ComputerEnrollmentStatsResponse(BaseModel):
+    total: int
+    pending: int
+    approved: int
+    blocked: int
+
 
 
 class ComputerResponse(ComputerBase):

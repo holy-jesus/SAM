@@ -23,7 +23,11 @@ import {
   CheckCircle2,
   Wand2,
   PlusCircle,
+  Bug,
+  Flame,
+  ShieldAlert,
 } from 'lucide-vue-next';
+import { ComputerVulnerabilitiesResponse } from '@/types';
 
 const computers = ref<Computer[]>([]);
 const employees = ref<Employee[]>([]);
@@ -38,6 +42,9 @@ const isDetailsModalOpen = ref(false);
 const isAddSoftwareModalOpen = ref(false);
 const editingComputer = ref<Partial<Computer> | null>(null);
 const selectedComputer = ref<Computer | null>(null);
+const detailsTab = ref<'software' | 'vulnerabilities'>('software');
+const vulnReport = ref<ComputerVulnerabilitiesResponse | null>(null);
+const loadingVulns = ref(false);
 
 const compForm = ref({
   hostname: '',
@@ -147,10 +154,24 @@ async function deleteComputer(id: string) {
   }
 }
 
-async function openDetails(comp: Computer) {
+async function openDetails(comp: Computer, initialTab: 'software' | 'vulnerabilities' = 'software') {
   const details = await api.getComputer(comp.id);
   selectedComputer.value = details;
+  detailsTab.value = initialTab;
+  vulnReport.value = null;
   isDetailsModalOpen.value = true;
+  await loadComputerVulns(comp.id);
+}
+
+async function loadComputerVulns(compId: string) {
+  loadingVulns.value = true;
+  try {
+    vulnReport.value = await api.getComputerVulnerabilities(compId);
+  } catch (err) {
+    console.error('Ошибка загрузки уязвимостей хоста:', err);
+  } finally {
+    loadingVulns.value = false;
+  }
 }
 
 function openAddSoftware(comp: Computer) {
@@ -283,9 +304,17 @@ async function removeSoftware(instId: string) {
                 <div class="flex items-center justify-end gap-1">
                   <button
                     type="button"
+                    title="Аудит уязвимостей БДУ ФСТЭК"
+                    class="p-1.5 rounded-md hover:bg-red-50 text-red-600 transition cursor-pointer"
+                    @click="openDetails(comp, 'vulnerabilities')"
+                  >
+                    <Bug class="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
                     title="Установленное ПО на хосте"
                     class="p-1.5 rounded-md hover:bg-blue-50 text-blue-600 transition cursor-pointer"
-                    @click="openDetails(comp)"
+                    @click="openDetails(comp, 'software')"
                   >
                     <Layers class="w-4 h-4" />
                   </button>
@@ -387,11 +416,48 @@ async function removeSoftware(instId: string) {
           </div>
         </div>
 
-        <!-- Раздел установленного ПО -->
-        <div>
+        <!-- Переключатель вкладок карточки ПК -->
+        <div class="flex items-center gap-2 border-b border-slate-200 pb-2">
+          <button
+            type="button"
+            :class="[
+              'px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5',
+              detailsTab === 'software'
+                ? 'bg-blue-50 text-blue-700'
+                : 'text-slate-600 hover:text-slate-900',
+            ]"
+            @click="detailsTab = 'software'"
+          >
+            <Layers class="w-3.5 h-3.5" />
+            <span>Установленное ПО ({{ selectedComputer.installed_software?.length || 0 }})</span>
+          </button>
+
+          <button
+            type="button"
+            :class="[
+              'px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5',
+              detailsTab === 'vulnerabilities'
+                ? 'bg-red-50 text-red-700'
+                : 'text-slate-600 hover:text-slate-900',
+            ]"
+            @click="detailsTab = 'vulnerabilities'"
+          >
+            <Bug class="w-3.5 h-3.5" />
+            <span>Уязвимости БДУ ФСТЭК</span>
+            <span
+              v-if="vulnReport && vulnReport.total_vulnerabilities > 0"
+              class="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-red-100 text-red-700 font-bold ml-0.5"
+            >
+              {{ vulnReport.total_vulnerabilities }}
+            </span>
+          </button>
+        </div>
+
+        <!-- Вкладка 1: Раздел установленного ПО -->
+        <div v-if="detailsTab === 'software'">
           <div class="flex items-center justify-between mb-3">
             <h4 class="font-bold text-slate-900 text-sm">
-              Установленное ПО на данном ПК ({{ selectedComputer.installed_software?.length || 0 }})
+              Список установленного ПО на данном ПК
             </h4>
             <Button variant="outline" size="sm" @click="openAddSoftware(selectedComputer)">
               <PlusCircle class="w-3.5 h-3.5 mr-1 text-blue-600" />
@@ -451,6 +517,82 @@ async function removeSoftware(instId: string) {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Вкладка 2: Отчёт об уязвимостях БДУ ФСТЭК для хоста -->
+        <div v-else-if="detailsTab === 'vulnerabilities'" class="space-y-4">
+          <div v-if="loadingVulns" class="text-center py-8 text-xs text-slate-500">
+            Загрузка и сопоставление с базой БДУ ФСТЭК России...
+          </div>
+          <div v-else-if="vulnReport" class="space-y-4">
+            <!-- Сводные метрики хоста -->
+            <div class="grid grid-cols-3 gap-3">
+              <div class="p-3 rounded-lg bg-red-50 border border-red-200">
+                <span class="text-[10px] uppercase font-bold text-red-600 block">Критических</span>
+                <span class="text-xl font-extrabold text-red-700 font-mono">{{ vulnReport.critical_count }}</span>
+              </div>
+              <div class="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <span class="text-[10px] uppercase font-bold text-amber-600 block">Высоких</span>
+                <span class="text-xl font-extrabold text-amber-700 font-mono">{{ vulnReport.high_count }}</span>
+              </div>
+              <div class="p-3 rounded-lg bg-purple-50 border border-purple-200">
+                <span class="text-[10px] uppercase font-bold text-purple-600 block">Эксплойты</span>
+                <span class="text-xl font-extrabold text-purple-700 font-mono">
+                  {{ vulnReport.has_exploits ? 'Обнаружены' : 'Нет' }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Список уязвимого софта на хосте -->
+            <div class="space-y-3">
+              <div
+                v-for="app in vulnReport.affected_software"
+                :key="app.installed_software_id"
+                class="border border-slate-200 rounded-lg p-3 bg-white space-y-2 text-xs"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-slate-900 text-sm">{{ app.software_name }}</span>
+                    <span class="font-mono text-slate-500 text-[11px]">{{ app.version || 'версия не указана' }}</span>
+                  </div>
+                  <Badge variant="destructive" size="sm">
+                    Уязвимостей: {{ app.vulnerabilities_count }}
+                  </Badge>
+                </div>
+
+                <div class="space-y-1.5 pt-1">
+                  <div
+                    v-for="v in app.vulnerabilities"
+                    :key="v.id"
+                    class="p-2.5 rounded bg-slate-50 border border-slate-200 flex flex-col gap-1"
+                  >
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 font-mono">
+                        <span class="font-bold text-slate-900">{{ v.bdu_id }}</span>
+                        <span v-if="v.cve_id" class="text-blue-600 text-[11px]">{{ v.cve_id }}</span>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <span v-if="v.cvss_score" class="font-mono font-bold text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-800">
+                          CVSS {{ v.cvss_score }}
+                        </span>
+                        <span v-if="v.exploit_status && v.exploit_status.includes('существ')" class="text-red-700 text-[10px] font-bold flex items-center gap-0.5">
+                          <Flame class="w-3 h-3 text-red-600" />
+                          Эксплойт
+                        </span>
+                      </div>
+                    </div>
+                    <div class="text-[11px] text-slate-700">{{ v.name }}</div>
+                    <div v-if="v.solution" class="text-[10px] text-emerald-800 bg-emerald-50/60 p-1.5 rounded mt-0.5 border border-emerald-100">
+                      <strong>Мера:</strong> {{ v.solution }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-center py-6 text-xs text-slate-400">
+            Для данного хоста не зафиксировано уязвимостей в базе БДУ ФСТЭК.
           </div>
         </div>
       </div>

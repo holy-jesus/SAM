@@ -16,6 +16,14 @@ import {
   SmartMatchResult,
   EulaAnalysisResult,
   AIChatMessage,
+  ImportSubstitutionItem,
+  SubstitutionSearchResponse,
+  SubstitutionSyncResponse,
+  VulnerabilityItem,
+  VulnerabilitiesSummary,
+  VulnerabilitiesListResponse,
+  ComputerVulnerabilitiesResponse,
+  VulnerabilitySyncResponse,
 } from '@/types';
 import * as mock from './mockData';
 
@@ -638,6 +646,226 @@ export const api = {
     }
   },
 
+  async generateRegistryEmbeddings(limit = 200): Promise<{ success: boolean; generated_count: number; message: string }> {
+    try {
+      const res = await apiClient.post('/registry/generate-embeddings', null, { params: { limit } });
+      return res.data;
+    } catch {
+      await delay(600);
+      return {
+        success: true,
+        generated_count: limit,
+        message: `Сгенерировано ${limit} векторных эмбеддингов для Единого реестра ПО РФ (text-embedding-3-small).`,
+      };
+    }
+  },
+
+  // === Модуль импортозамещения ПО (Раздел 4.7) ===
+  async searchSubstitutions(query: string, forceFetch = false): Promise<SubstitutionSearchResponse> {
+    try {
+      const res = await apiClient.get('/substitution/search', { params: { query, force_fetch: forceFetch } });
+      return res.data;
+    } catch {
+      await delay(300);
+      const q = query.toLowerCase();
+      const matched = mock.mockSubstitutions.filter(
+        (s) =>
+          s.foreign_software_name.toLowerCase().includes(q) ||
+          s.russian_software_name.toLowerCase().includes(q) ||
+          s.owner_name.toLowerCase().includes(q) ||
+          s.class_name.toLowerCase().includes(q)
+      );
+      return {
+        query,
+        total_found: matched.length > 0 ? matched.length : mock.mockSubstitutions.length,
+        items: matched.length > 0 ? matched : mock.mockSubstitutions,
+      };
+    }
+  },
+
+  async getProductSuggestions(query: string): Promise<string[]> {
+    if (!query || query.length < 2) return [];
+    try {
+      const res = await apiClient.get('/substitution/suggestions', { params: { query } });
+      return res.data;
+    } catch {
+      await delay(100);
+      const q = query.toLowerCase();
+      const allNames = [
+        'Adobe Photoshop',
+        'Adobe Acrobat',
+        'Adobe Illustrator',
+        'Autodesk AutoCAD',
+        'Autodesk 3ds Max',
+        'Microsoft Office 365',
+        'Microsoft Windows 11',
+        'Microsoft Teams',
+        'Oracle Database',
+        'VMware vSphere',
+        'Atlassian Jira',
+        'Atlassian Confluence',
+        'Zoom Video Communications',
+        'Slack',
+      ];
+      return allNames.filter((n) => n.toLowerCase().includes(q));
+    }
+  },
+
+  async fetchOnlineSubstitution(query: string): Promise<SubstitutionSyncResponse> {
+    try {
+      const res = await apiClient.post('/substitution/fetch-online', null, { params: { query } });
+      return res.data;
+    } catch {
+      await delay(700);
+      return {
+        success: true,
+        imported_count: 2,
+        message: `Успешно получены и сохранены отечественные аналоги для «${query}» из сервиса reestr.digital.gov.ru.`,
+      };
+    }
+  },
+
+  async getCatalogSubstitutions(catalogSoftwareId: string): Promise<SubstitutionSearchResponse> {
+    try {
+      const res = await apiClient.get(`/substitution/catalog/${catalogSoftwareId}`);
+      return res.data;
+    } catch {
+      await delay(250);
+      return {
+        query: 'Каталог ПО',
+        total_found: mock.mockSubstitutions.length,
+        items: mock.mockSubstitutions,
+      };
+    }
+  },
+
+  // === Модуль учёта уязвимостей безопасности БДУ ФСТЭК (Раздел 4.8) ===
+  async getVulnerabilities(params?: {
+    search?: string;
+    severity?: string;
+    vendor?: string;
+    has_exploit?: boolean;
+    page?: number;
+    limit?: number;
+  }): Promise<VulnerabilitiesListResponse> {
+    try {
+      const res = await apiClient.get('/vulnerabilities', { params });
+      return res.data;
+    } catch {
+      await delay(250);
+      let list = [...mock.mockVulnerabilities];
+      if (params?.search) {
+        const q = params.search.toLowerCase();
+        list = list.filter(
+          (v) =>
+            v.bdu_id.toLowerCase().includes(q) ||
+            v.name.toLowerCase().includes(q) ||
+            v.vendor.toLowerCase().includes(q) ||
+            v.software_name.toLowerCase().includes(q) ||
+            (v.cve_id && v.cve_id.toLowerCase().includes(q))
+        );
+      }
+      if (params?.severity) {
+        list = list.filter((v) => v.severity === params.severity);
+      }
+      if (params?.has_exploit) {
+        list = list.filter((v) => v.exploit_status && v.exploit_status.toLowerCase().includes('существ'));
+      }
+      return {
+        total: list.length,
+        page: params?.page || 1,
+        limit: params?.limit || 50,
+        items: list,
+      };
+    }
+  },
+
+  async getVulnerabilitiesSummary(): Promise<VulnerabilitiesSummary> {
+    try {
+      const res = await apiClient.get('/vulnerabilities/summary');
+      return res.data;
+    } catch {
+      await delay(150);
+      return mock.mockVulnerabilitiesSummary;
+    }
+  },
+
+  async getComputerVulnerabilities(computerId: string): Promise<ComputerVulnerabilitiesResponse> {
+    try {
+      const res = await apiClient.get(`/vulnerabilities/computer/${computerId}`);
+      return res.data;
+    } catch {
+      await delay(350);
+      const comp = computersState.find((c) => c.id === computerId) || mock.mockComputers[0];
+      return {
+        computer_id: comp.id,
+        hostname: comp.hostname,
+        serial_number: comp.serial_number,
+        total_vulnerabilities: 4,
+        critical_count: 2,
+        high_count: 2,
+        affected_software: [
+          {
+            installed_software_id: 'inst-01',
+            software_name: 'Google Chrome',
+            publisher: 'Google LLC',
+            version: '67.208.108',
+            vulnerabilities_count: 1,
+            vulnerabilities: [mock.mockVulnerabilities[0]],
+          },
+          {
+            installed_software_id: 'inst-02',
+            software_name: '7-Zip',
+            publisher: 'Igor Pavlov',
+            version: '19.00',
+            vulnerabilities_count: 1,
+            vulnerabilities: [mock.mockVulnerabilities[1]],
+          },
+          {
+            installed_software_id: 'inst-07',
+            software_name: 'Java 8 Update 201',
+            publisher: 'Oracle Corporation',
+            version: '8.0.2010.9',
+            vulnerabilities_count: 1,
+            vulnerabilities: [mock.mockVulnerabilities[2]],
+          },
+          {
+            installed_software_id: 'inst-06',
+            software_name: 'Microsoft Office 2021 Professional Plus',
+            publisher: 'Microsoft Corporation',
+            version: '16.0.14332',
+            vulnerabilities_count: 1,
+            vulnerabilities: [mock.mockVulnerabilities[3]],
+          },
+        ],
+      };
+    }
+  },
+
+  async getInstalledSoftwareVulnerabilities(installedSoftwareId: string): Promise<VulnerabilityItem[]> {
+    try {
+      const res = await apiClient.get(`/vulnerabilities/software/${installedSoftwareId}`);
+      return res.data;
+    } catch {
+      await delay(200);
+      return [mock.mockVulnerabilities[0]];
+    }
+  },
+
+  async syncVulnerabilities(limit?: number): Promise<VulnerabilitySyncResponse> {
+    try {
+      const res = await apiClient.post('/vulnerabilities/sync', null, { params: { limit } });
+      return res.data;
+    } catch {
+      await delay(800);
+      return {
+        success: true,
+        imported_count: limit || 99420,
+        message: `Успешно синхронизировано ${limit || 99420} уязвимостей БДУ ФСТЭК России.`,
+      };
+    }
+  },
+
   // === Импорт дампов хостов и история загрузок ===
   async uploadDump(file: File): Promise<{
     filename: string;
@@ -686,53 +914,71 @@ export const api = {
     }
   },
 
-  // === Модули искусственного интеллекта (ИИ) ===
-  async smartMatchSoftware(rawProcessName: string): Promise<SmartMatchResult> {
+  // === Модули искусственного интеллекта (ИИ) и Smart Match конвейера ===
+  async smartMatchSoftware(
+    input: string | { raw_process_name: string; install_path?: string; version?: string; publisher?: string; binary_hash?: string }
+  ): Promise<SmartMatchResult> {
+    const payload = typeof input === 'string' ? { raw_process_name: input } : input;
+    const rawProcessName = payload.raw_process_name;
+
     try {
-      const res = await apiClient.post('/ai/match-software', { raw_process_name: rawProcessName });
+      const res = await apiClient.post('/matcher/match-software', payload);
       return res.data;
     } catch {
-      await delay(450);
-      // Эвристическое сопоставление в автономном режиме
-      const lower = rawProcessName.toLowerCase();
-      if (lower.includes('visual') || lower.includes('studio') || lower.includes('devenv')) {
+      try {
+        const fallbackRes = await apiClient.post('/ai/match-software', payload);
+        return fallbackRes.data;
+      } catch {
+        await delay(450);
+        // Эвристическое сопоставление в автономном режиме
+        const lower = rawProcessName.toLowerCase();
+        if (lower.includes('visual') || lower.includes('studio') || lower.includes('devenv')) {
+          return {
+            raw_process_name: rawProcessName,
+            matched_catalog_software_id: 'cat-04',
+            matched_name: 'Microsoft Visual Studio 2022 Professional',
+            vendor: 'Microsoft Corporation',
+            matched_version: payload.version || '17.8.0',
+            confidence: 0.95,
+            reasoning: 'Семантическое сопоставление имени процесса studio_visual с каталогом IDE через pgvector.',
+            match_source: 'embedding',
+          };
+        }
+        if (lower.includes('chrome')) {
+          return {
+            raw_process_name: rawProcessName,
+            matched_catalog_software_id: 'cat-02',
+            matched_name: 'Google Chrome',
+            vendor: 'Google LLC',
+            matched_version: payload.version || '125.0.6422.60',
+            confidence: 0.99,
+            reasoning: 'Эвристическое соответствие по пути установки и исполняемому файлу chrome.exe.',
+            match_source: 'path_heuristic',
+          };
+        }
+        if (lower.includes('utorrent') || lower.includes('torrent')) {
+          return {
+            raw_process_name: rawProcessName,
+            matched_catalog_software_id: 'cat-07',
+            matched_name: 'BitTorrent / uTorrent Client',
+            vendor: 'BitTorrent Inc.',
+            matched_version: payload.version || '1.2.8.2114',
+            confidence: 0.94,
+            reasoning: 'Классификатор определил запрещённый P2P-клиент торрент.',
+            match_source: 'process_signatures',
+          };
+        }
         return {
           raw_process_name: rawProcessName,
-          matched_catalog_software_id: 'cat-04',
-          matched_name: 'Microsoft Visual Studio 2022 Professional',
+          matched_catalog_software_id: 'cat-01',
+          matched_name: 'Microsoft Office 2021 Professional Plus',
           vendor: 'Microsoft Corporation',
-          confidence: 0.95,
-          reasoning: 'Семантическое сопоставление имени процесса studio_visual с каталогом IDE через pgvector.',
+          matched_version: payload.version || '16.0.14332',
+          confidence: 0.88,
+          reasoning: 'Сопоставление с Реестром отечественного ПО и эталонным каталогом.',
+          match_source: 'ru_registry',
         };
       }
-      if (lower.includes('chrome')) {
-        return {
-          raw_process_name: rawProcessName,
-          matched_catalog_software_id: 'cat-02',
-          matched_name: 'Google Chrome',
-          vendor: 'Google LLC',
-          confidence: 0.99,
-          reasoning: 'Прямое векторное совпадение с корпоративным браузером Google Chrome.',
-        };
-      }
-      if (lower.includes('utorrent') || lower.includes('torrent')) {
-        return {
-          raw_process_name: rawProcessName,
-          matched_catalog_software_id: 'cat-07',
-          matched_name: 'BitTorrent / uTorrent Client',
-          vendor: 'BitTorrent Inc.',
-          confidence: 0.94,
-          reasoning: 'Классификатор определил запрещённый P2P-клиент торрент.',
-        };
-      }
-      return {
-        raw_process_name: rawProcessName,
-        matched_catalog_software_id: 'cat-01',
-        matched_name: 'Microsoft Office 2021 Professional Plus',
-        vendor: 'Microsoft Corporation',
-        confidence: 0.82,
-        reasoning: 'Эвристическое соответствие с офисным пакетом ПО.',
-      };
     }
   },
 

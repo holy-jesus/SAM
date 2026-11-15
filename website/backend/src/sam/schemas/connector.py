@@ -30,6 +30,35 @@ class AgentHeartbeatRequest(BaseModel):
     hostname: Optional[str] = None
 
 
+class AgentRegisterRequest(BaseModel):
+    serial_number: str
+    hostname: str
+    ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    cpu: Optional[str] = None
+    ram_mb: Optional[int] = None
+
+
+class AgentAuthResponse(BaseModel):
+    serial_number: str
+    hostname: str
+    enrollment_status: str  # "pending", "approved", "blocked"
+    can_send_data: bool     # True iff enrollment_status == "approved"
+    message: str
+    server_time: datetime
+
+
+class AgentHeartbeatResponse(BaseModel):
+    status: str = "ok"
+    recognized: bool
+    enrollment_status: Optional[str] = None
+    can_send_data: bool = False
+    message: Optional[str] = None
+
+
+
 class ImportResultResponse(BaseModel):
     filename: str
     total_rows: int

@@ -13,6 +13,8 @@ from sam.schemas.computer import (
     ComputerCreate,
     ComputerUpdate,
     ComputerResponse,
+    ComputerEnrollmentStatusUpdate,
+    ComputerEnrollmentStatsResponse,
 )
 from sam.schemas.installed_software import (
     InstalledSoftwareResponse,
@@ -73,6 +75,7 @@ def _serialize_computer(c: Computer) -> dict:
         "ram_mb": c.ram_mb,
         "disk_info": c.disk_info,
         "is_online": c.is_online,
+        "enrollment_status": c.enrollment_status or "pending",
         "last_seen_at": c.last_seen_at,
         "employee_id": str(c.employee_id) if c.employee_id else None,
         "employee": emp,
@@ -87,6 +90,12 @@ def _serialize_computer(c: Computer) -> dict:
 async def get_computers(
     search: Optional[str] = Query(None),
     is_online: Optional[bool] = Query(None),
+    status: Optional[str] = Query(
+        None, description="Фильтр по статусу авторизации: pending, approved, blocked"
+    ),
+    enrollment_status: Optional[str] = Query(
+        None, description="Синоним status: pending, approved, blocked"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Computer)
@@ -105,6 +114,11 @@ async def get_computers(
     if is_online is not None:
         conditions.append(Computer.is_online == is_online)
 
+    target_status = status or enrollment_status
+    if target_status:
+        target_status = target_status.strip().lower()
+        conditions.append(Computer.enrollment_status == target_status)
+
     if conditions:
         query = query.where(and_(*conditions))
 
@@ -113,6 +127,28 @@ async def get_computers(
     computers = result.scalars().all()
 
     return [_serialize_computer(c) for c in computers]
+
+
+@router.get("/enrollment/stats", response_model=ComputerEnrollmentStatsResponse)
+async def get_computer_enrollment_stats(db: AsyncSession = Depends(get_db)):
+    """
+    Возвращает статистику по статусам авторизации ПК:
+    общее число, количество заявок (pending), разрешённых (approved) и заблокированных (blocked).
+    """
+    rows = await db.execute(
+        select(Computer.enrollment_status, func.count(Computer.id)).group_by(Computer.enrollment_status)
+    )
+    counts = {r[0]: r[1] for r in rows.all()}
+    pending = counts.get("pending", 0)
+    approved = counts.get("approved", 0)
+    blocked = counts.get("blocked", 0)
+    total = sum(counts.values())
+    return ComputerEnrollmentStatsResponse(
+        total=total,
+        pending=pending,
+        approved=approved,
+        blocked=blocked,
+    )
 
 
 @router.post("", response_model=ComputerResponse)
@@ -137,6 +173,7 @@ async def create_computer(payload: ComputerCreate, db: AsyncSession = Depends(ge
         ram_mb=payload.ram_mb,
         disk_info=payload.disk_info,
         is_online=payload.is_online,
+        enrollment_status=payload.enrollment_status or "approved",
         employee_id=emp_id,
         last_seen_at=datetime.now(timezone.utc),
     )
@@ -187,6 +224,106 @@ async def update_computer(
     await db.commit()
     await db.refresh(comp)
     return _serialize_computer(comp)
+
+
+@router.patch("/{computer_id}/status", response_model=ComputerResponse)
+async def update_computer_enrollment_status(
+    computer_id: str,
+    payload: ComputerEnrollmentStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Изменение статуса авторизации ПК:
+    - 'pending' — заявка на добавление
+    - 'approved' — разрешён (данные принимаются)
+    - 'blocked' — чёрный список (запросы отклоняются)
+    """
+    try:
+        cid = uuid.UUID(computer_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат UUID")
+
+    target_status = payload.status.strip().lower()
+    if target_status not in ("pending", "approved", "blocked"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недопустимый статус '{payload.status}'. Разрешённые: 'pending', 'approved', 'blocked'.",
+        )
+
+    result = await db.execute(select(Computer).where(Computer.id == cid))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Компьютер не найден")
+
+    comp.enrollment_status = target_status
+    await db.commit()
+    await db.refresh(comp)
+    return _serialize_computer(comp)
+
+
+@router.post("/{computer_id}/approve", response_model=ComputerResponse)
+async def approve_computer(computer_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Одобрить ПК (перевести в статус 'approved'). Приём данных от агента разрешается.
+    """
+    try:
+        cid = uuid.UUID(computer_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат UUID")
+
+    result = await db.execute(select(Computer).where(Computer.id == cid))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Компьютер не найден")
+
+    comp.enrollment_status = "approved"
+    await db.commit()
+    await db.refresh(comp)
+    return _serialize_computer(comp)
+
+
+@router.post("/{computer_id}/block", response_model=ComputerResponse)
+async def block_computer(computer_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Отклонить/заблокировать ПК (перевести в статус 'blocked' / чёрный список).
+    Приём данных от агента отклоняется с ошибкой 403 Forbidden.
+    """
+    try:
+        cid = uuid.UUID(computer_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат UUID")
+
+    result = await db.execute(select(Computer).where(Computer.id == cid))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Компьютер не найден")
+
+    comp.enrollment_status = "blocked"
+    await db.commit()
+    await db.refresh(comp)
+    return _serialize_computer(comp)
+
+
+@router.post("/{computer_id}/reset-pending", response_model=ComputerResponse)
+async def reset_pending_computer(computer_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Вернуть ПК в статус рассмотрения заявки ('pending').
+    """
+    try:
+        cid = uuid.UUID(computer_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат UUID")
+
+    result = await db.execute(select(Computer).where(Computer.id == cid))
+    comp = result.scalar_one_or_none()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Компьютер не найден")
+
+    comp.enrollment_status = "pending"
+    await db.commit()
+    await db.refresh(comp)
+    return _serialize_computer(comp)
+
 
 
 @router.delete("/{computer_id}")

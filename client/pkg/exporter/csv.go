@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"sam-client/pkg/model"
 )
@@ -51,7 +52,7 @@ func ExportStandardCSV(w io.Writer, items []model.SoftwareItem) error {
 	return nil
 }
 
-// ExportExtendedCSV записывает расширенный CSV с флагом активности и связанными процессами
+// ExportExtendedCSV записывает расширенный CSV с флагом активности, процессами, хэшем и датой запуска
 func ExportExtendedCSV(w io.Writer, items []model.SoftwareItem) error {
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
@@ -65,6 +66,9 @@ func ExportExtendedCSV(w io.Writer, items []model.SoftwareItem) error {
 		"PIDS",
 		"PROCESS_NAMES",
 		"IS_STANDALONE",
+		"INSTALL_PATH",
+		"BINARY_HASH",
+		"LAST_LAUNCHED_AT",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("failed to write extended csv header: %w", err)
@@ -95,6 +99,16 @@ func ExportExtendedCSV(w io.Writer, items []model.SoftwareItem) error {
 			isStandaloneStr = "TRUE"
 		}
 
+		lastRunStr := ""
+		if item.LastLaunchedAt != nil {
+			lastRunStr = item.LastLaunchedAt.Format(time.RFC3339)
+		}
+
+		path := item.InstallPath
+		if path == "" {
+			path = item.InstallLocation
+		}
+
 		row := []string{
 			item.SerialNumber,
 			item.DisplayName,
@@ -104,6 +118,9 @@ func ExportExtendedCSV(w io.Writer, items []model.SoftwareItem) error {
 			strings.Join(pidStrs, ";"),
 			strings.Join(item.MatchedProcesses, ";"),
 			isStandaloneStr,
+			path,
+			item.BinaryHash,
+			lastRunStr,
 		}
 		if err := writer.Write(row); err != nil {
 			return fmt.Errorf("failed to write extended csv record: %w", err)
@@ -126,6 +143,7 @@ func ExportProcessesCSV(w io.Writer, serialNumber string, procs []model.ProcessI
 		"PRODUCT_NAME",
 		"COMPANY_NAME",
 		"FILE_VERSION",
+		"BINARY_HASH",
 		"MATCHED_SOFTWARE",
 	}
 	if err := writer.Write(header); err != nil {
@@ -141,6 +159,7 @@ func ExportProcessesCSV(w io.Writer, serialNumber string, procs []model.ProcessI
 			p.ProductName,
 			p.CompanyName,
 			p.FileVersion,
+			p.BinaryHash,
 			p.MatchedSoftware,
 		}
 		if err := writer.Write(row); err != nil {

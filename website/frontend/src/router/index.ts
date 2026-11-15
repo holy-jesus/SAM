@@ -15,6 +15,8 @@ import ClassifiersView from '@/views/ClassifiersView.vue';
 import RegistryView from '@/views/RegistryView.vue';
 import ImportDumpView from '@/views/ImportDumpView.vue';
 import AIChatView from '@/views/AIChatView.vue';
+import SubstitutionView from '@/views/SubstitutionView.vue';
+import VulnerabilitiesView from '@/views/VulnerabilitiesView.vue';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -82,6 +84,16 @@ const routes: RouteRecordRaw[] = [
     path: '/registry',
     name: 'registry',
     component: RegistryView,
+  },
+  {
+    path: '/substitution',
+    name: 'substitution',
+    component: SubstitutionView,
+  },
+  {
+    path: '/vulnerabilities',
+    name: 'vulnerabilities',
+    component: VulnerabilitiesView,
   },
   {
     path: '/import',

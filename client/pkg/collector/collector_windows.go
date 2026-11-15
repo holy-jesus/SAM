@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -18,10 +19,10 @@ import (
 )
 
 const (
-	th32csSnapProcess           = 0x00000002
-	processQueryLimitedInfo     = 0x1000
-	keyWow6464Key               = 0x0100
-	keyWow6432Key               = 0x0200
+	th32csSnapProcess       = 0x00000002
+	processQueryLimitedInfo = 0x1000
+	keyWow6464Key           = 0x0100
+	keyWow6432Key           = 0x0200
 )
 
 type processEntry32W struct {
@@ -42,6 +43,18 @@ type translation struct {
 	CodePage uint16
 }
 
+type memoryStatusEx struct {
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
+	AvailExtendedVirtual uint64
+}
+
 var (
 	modkernel32 = syscall.NewLazyDLL("kernel32.dll")
 	modadvapi32 = syscall.NewLazyDLL("advapi32.dll")
@@ -53,6 +66,7 @@ var (
 	procOpenProcess              = modkernel32.NewProc("OpenProcess")
 	procCloseHandle              = modkernel32.NewProc("CloseHandle")
 	procQueryFullProcessImage    = modkernel32.NewProc("QueryFullProcessImageNameW")
+	procGlobalMemoryStatusEx     = modkernel32.NewProc("GlobalMemoryStatusEx")
 
 	procGetFileVersionInfoSizeW = modversion.NewProc("GetFileVersionInfoSizeW")
 	procGetFileVersionInfoW     = modversion.NewProc("GetFileVersionInfoW")
@@ -70,16 +84,21 @@ func collectMachineInfo(customSerial string) (model.MachineInfo, error) {
 		serial = hostname
 	}
 
-	osVersion := getWindowsOSName()
-	if osVersion == "" {
-		osVersion = fmt.Sprintf("Windows (%s)", runtime.GOARCH)
-	}
+	osName, osVersion := getWindowsOSDetails()
+	cpu := getWindowsCPUInfo()
+	ramMB := getWindowsRAMMB()
+	ip, mac := getPrimaryNetworkDetails()
 
 	return model.MachineInfo{
 		SerialNumber: serial,
 		Hostname:     hostname,
-		OS:           osVersion,
+		IPAddress:    ip,
+		MACAddress:   mac,
+		OS:           osName,
+		OSVersion:    osVersion,
 		Architecture: runtime.GOARCH,
+		CPU:          cpu,
+		RAM_MB:       ramMB,
 		ScanTime:     time.Now().UTC(),
 	}, nil
 }
@@ -167,11 +186,11 @@ func isValidSerial(s string) bool {
 	return true
 }
 
-func getWindowsOSName() string {
+func getWindowsOSDetails() (string, string) {
 	var hKey syscall.Handle
 	err := syscall.RegOpenKeyEx(syscall.HKEY_LOCAL_MACHINE, syscall.StringToUTF16Ptr(`SOFTWARE\Microsoft\Windows NT\CurrentVersion`), 0, syscall.KEY_READ, &hKey)
 	if err != nil {
-		return ""
+		return "Windows", ""
 	}
 	defer syscall.RegCloseKey(hKey)
 
@@ -180,10 +199,45 @@ func getWindowsOSName() string {
 	if dispVer == "" {
 		dispVer = regReadString(hKey, "ReleaseId")
 	}
-	if prodName != "" && dispVer != "" {
-		return fmt.Sprintf("%s (%s)", prodName, dispVer)
+	buildNum := regReadString(hKey, "CurrentBuildNumber")
+	if buildNum == "" {
+		buildNum = regReadString(hKey, "CurrentBuild")
 	}
-	return prodName
+
+	osName := prodName
+	if osName == "" {
+		osName = "Windows"
+	}
+
+	var versionParts []string
+	if dispVer != "" {
+		versionParts = append(versionParts, dispVer)
+	}
+	if buildNum != "" {
+		versionParts = append(versionParts, "Build "+buildNum)
+	}
+
+	return osName, strings.Join(versionParts, ", ")
+}
+
+func getWindowsCPUInfo() string {
+	var hKey syscall.Handle
+	err := syscall.RegOpenKeyEx(syscall.HKEY_LOCAL_MACHINE, syscall.StringToUTF16Ptr(`HARDWARE\DESCRIPTION\System\CentralProcessor\0`), 0, syscall.KEY_READ, &hKey)
+	if err != nil {
+		return ""
+	}
+	defer syscall.RegCloseKey(hKey)
+	return strings.TrimSpace(regReadString(hKey, "ProcessorNameString"))
+}
+
+func getWindowsRAMMB() int {
+	var msx memoryStatusEx
+	msx.Length = uint32(unsafe.Sizeof(msx))
+	r0, _, _ := procGlobalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&msx)))
+	if r0 != 0 && msx.TotalPhys > 0 {
+		return int(msx.TotalPhys / (1024 * 1024))
+	}
+	return 0
 }
 
 type regScanTarget struct {
@@ -268,12 +322,100 @@ func collectInstalledSoftware(serialNumber string) ([]model.SoftwareItem, error)
 				InstallLocation: installLoc,
 				InstallDate:     installDate,
 				SourceKey:       subKeyName,
+				Source:          "registry",
 			})
 		}
 		syscall.RegCloseKey(hKey)
 	}
 
 	return items, nil
+}
+
+// scanDiskSoftware производит тщательное сканирование файловой системы Windows
+func scanDiskSoftware(serialNumber string) ([]model.SoftwareItem, error) {
+	var candidatesDirs []string
+
+	// Program Files
+	if pf := os.Getenv("ProgramFiles"); pf != "" {
+		candidatesDirs = append(candidatesDirs, pf)
+	} else {
+		candidatesDirs = append(candidatesDirs, `C:\Program Files`)
+	}
+
+	// Program Files (x86)
+	if pfx86 := os.Getenv("ProgramFiles(x86)"); pfx86 != "" {
+		candidatesDirs = append(candidatesDirs, pfx86)
+	} else {
+		candidatesDirs = append(candidatesDirs, `C:\Program Files (x86)`)
+	}
+
+	// %LocalAppData%\Programs
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		candidatesDirs = append(candidatesDirs, filepath.Join(localAppData, "Programs"))
+	}
+
+	var results []model.SoftwareItem
+	seen := make(map[string]bool)
+
+	for _, baseDir := range candidatesDirs {
+		entries, err := os.ReadDir(baseDir)
+		if err != nil {
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			appName := entry.Name()
+			appDir := filepath.Join(baseDir, appName)
+
+			// Ищем главный .exe в папке программы
+			mainExe := FindMainExecutable(appDir, appName)
+			if mainExe == "" {
+				continue
+			}
+
+			prod, comp, desc, ver, _ := getExecutableVersionInfo(mainExe)
+
+			dispName := prod
+			if dispName == "" {
+				dispName = desc
+			}
+			if dispName == "" {
+				dispName = appName
+			}
+
+			pub := comp
+			if pub == "" {
+				pub = "<Null>"
+			}
+
+			v := ver
+			if v == "" {
+				v = "<Null>"
+			}
+
+			dedup := strings.ToLower(dispName) + "|" + strings.ToLower(mainExe)
+			if seen[dedup] {
+				continue
+			}
+			seen[dedup] = true
+
+			results = append(results, model.SoftwareItem{
+				SerialNumber:    serialNumber,
+				DisplayName:     dispName,
+				Publisher:       pub,
+				Version:         v,
+				InstallLocation: appDir,
+				InstallPath:     mainExe,
+				Source:          "disk_scan",
+			})
+		}
+	}
+
+	return results, nil
 }
 
 func collectRunningProcesses() ([]model.ProcessItem, error) {
